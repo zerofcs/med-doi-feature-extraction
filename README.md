@@ -90,8 +90,8 @@ You'll need to install these programs on your computer:
 
 ```bash
 # Download the tool
-git clone https://github.com/your-repo/med-doi-scraping.git
-cd med-doi-scraping
+git clone https://github.com/zerofcs/med-doi-feature-extraction
+cd med-doi-feature-extraction
 
 # Create isolated environment
 python -m venv venv
