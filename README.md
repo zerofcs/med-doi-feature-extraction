@@ -61,18 +61,18 @@ The tool extracts exactly three standardized fields from each paper:
 You'll need to install these programs on your computer:
 
 1. **Python 3.9 or newer**
-   - Download from: https://www.python.org/downloads/
+   - Download from: <https://www.python.org/downloads/>
    - During installation, check "Add Python to PATH"
 
 2. **Git** (for downloading the tool)
-   - Download from: https://git-scm.com/downloads
+   - Download from: <https://git-scm.com/downloads>
 
 3. **Ollama** (for local AI processing) - RECOMMENDED
-   - Download from: https://ollama.ai/
+   - Download from: <https://ollama.ai/>
    - After installation, run: `ollama pull deepseek-r1:8b`
 
 4. **Alternative: OpenAI API** (cloud-based AI)
-   - Sign up at: https://platform.openai.com/
+   - Sign up at: <https://platform.openai.com/>
    - Get API key and set as environment variable `OPENAI_API_KEY`
    - Note: Costs apply for API usage but results may be more accurate
 
@@ -137,17 +137,18 @@ python cli.py extract --skip 0 --limit 10 --provider ollama
 ### Data Privacy and Security
 
 - **Local Processing:** When using Ollama, all data stays on your computer
-- **Cloud Processing:** OpenAI receives abstracts and doi in prompt.
-
+- **Cloud Processing:** OpenAI receives any data sent in prompt. DOI, Title, Abstract Note, Author, Publication Year, Journal, Author Affiliations, etc.
 
 ### Interactive Mode (Recommended for First Time)
 
 Simply run:
+
 ```bash
 python cli.py extract
 ```
 
 The tool will ask you:
+
 1. Which Excel file to process
 2. How many records to skip (0 for start from beginning)
 3. How many records to process (blank for all)
@@ -191,11 +192,12 @@ python cli.py extract --batch-size 10
 ### Output Structure
 
 The tool creates several folders:
-```
+
+```txt
 output/
 ├── extracted/          # Individual classification results (YAML files)
-├── logs/              # Processing logs and detailed interactions  
-└── failures/          # Records that couldn't be processed
+├── failures/          # Records that couldn't be processed
+└── logs/              # Processing logs and detailed interactions  
 ```
 
 ### Individual Results (YAML files)
@@ -297,28 +299,28 @@ Shows:
 
 ### Common Issues
 
-**"No abstracts found"** (Warning, not error)
+"No abstracts found"** (Warning, not error)
 
 - Impact: Processing continues but confidence is limited to 60% maximum  
 - Solution: For higher accuracy, provide abstracts in "Abstract Note" column
 - Note: Records without abstracts are still processed for basic categorization
 
-**"Connection refused" with Ollama**
+"Connection refused" with Ollama
 
 - Solution: Make sure Ollama is running: `ollama serve`
 - Or switch to OpenAI: `--provider openai`
 
-**"Rate limit exceeded" with OpenAI**
+"Rate limit exceeded" with OpenAI
 
 - Solution: Reduce batch size: `--batch-size 1`
 - Or use Ollama for unlimited local processing
 
-**Processing is very slow**
+Processing is very slow
 
 - With Ollama: Normal, especially first time. Each record takes 30-60 seconds
 - With OpenAI: Should be faster, check your internet connection
 
-**Python/pip not found**
+Python/pip not found
 
 - Solution: Reinstall Python and check "Add to PATH" during installation
 - Or use full path: `/usr/bin/python3` instead of `python`
@@ -338,7 +340,6 @@ Shows:
 - **timeout:** Processing took too long (retry with different provider)
 
 **Note:** Missing abstracts now generate warnings (reduced confidence) rather than errors.
-
 
 ---
 
