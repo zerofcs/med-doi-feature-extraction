@@ -1,0 +1,109 @@
+system: |
+  You are a medical research assistant specializing in plastic surgery literature analysis.
+  Your task is to extract THREE specific classification fields from medical abstracts.
+  You must respond only with valid JSON matching the requested schema.
+  Be precise and base your classifications only on the information provided.
+  If the content doesn't clearly fit predefined categories, select "Other" and provide a brief explanation.
+
+extraction: |
+  Analyze the following medical literature entry and extract THREE specific classification fields.
+  
+  CRITICAL: This analysis requires an abstract. If no abstract is provided, the extraction cannot proceed.
+
+  Title: {title}
+  Authors: {authors}
+  Journal: {journal}
+  Year: {year}
+  Abstract: {abstract}
+  Author Affiliations: {affiliations}
+
+  Extract the following THREE fields and respond with valid JSON:
+  {{
+    "subspecialty_focus": "FIELD 1: Select ONE from the list below",
+    "subspecialty_focus_other": "If 'Other' selected above, briefly specify",
+    "suggested_edits": ["FIELD 2: Select ALL that apply from the list below"],
+    "suggested_edits_other": "If 'Other' included above, briefly specify",
+    "priority_topics": ["FIELD 3: Select ALL that apply from the main categories below"],
+    "priority_topics_details": ["List specific sub-items that apply (e.g., 'BBL mortality risk', 'BIA-ALCL')"]
+  }}
+
+  FIELD 1 - Subspecialty Focus (SELECT ONE):
+  - "Craniofacial"
+  - "Hand/upper limb"
+  - "Breast"
+  - "Aesthetic"
+  - "Burn"
+  - "Generalized cutaneous disorders"
+  - "Facial/head and neck reconstruction"
+  - "Trunk, genital/pelvic, lower limb reconstruction"
+  - "Other" (specify in subspecialty_focus_other)
+
+  FIELD 2 - Suggested Edits (SELECT ALL THAT APPLY):
+  - "Aesthetic / Cosmetic (non-breast)"
+  - "Breast"
+  - "Craniofacial"
+  - "Hand/Upper extremity & Peripheral Nerve"
+  - "Burn"
+  - "Generalized Cutaneous Disorders"
+  - "Head & Neck Reconstruction"
+  - "Trunk / Pelvic / Lower-Limb Reconstruction"
+  - "Gender-affirming Surgery"
+  - "Education & Technology"
+  - "Other" (specify in suggested_edits_other)
+
+  FIELD 3 - Priority Topics (SELECT ALL THAT APPLY):
+  
+  1. "Patient Safety & Clinical Standards"
+     Sub-items to consider:
+     • Gluteal Fat Grafting Safety (incl. BBL mortality risk)
+     • Liposuction Safety
+     • ADM (Acellular Dermal Matrix) Safety Updates
+     • Injectable Fillers Safety
+     • Malignant Hyperthermia
+     • Ambulatory Surgery Adverse Event Prevention
+  
+  2. "Implants and Device-Related Issues"
+     Sub-items to consider:
+     • Breast Implant-Associated Anaplastic Large Cell Lymphoma (BIA-ALCL)
+     • FDA Warning: Silicone Injection
+  
+  3. "Aesthetic Surgery Policy and Regulation"
+     Sub-items to consider:
+     • Administration of Botulinum Toxin Neuromodulators
+     • Breast Augmentation in Teenagers
+     • Social Media Ethics
+  
+  4. "Technology and Innovation"
+     Sub-items to consider:
+     • Artificial Intelligence (AI) in Plastic Surgery
+     • Telemedicine and Virtual Care
+     • Regenerative Medicine (incl. Stem Cells and Fat Grafting)
+  
+  5. "Health System and Practice Regulation"
+     Sub-items to consider:
+     • Opioid Prescribing
+     • Economic Evaluations
+  
+  6. "Legislation, Advocacy & Public Health"
+     Sub-items to consider:
+     • Breast Cancer Patient Education Act
+     • Ensuring Lasting Smiles Act
+     • Global Surgery / Access to Reconstructive Care
+     • Diversity, Equity, and Inclusion (DEI)
+  
+  7. "Wellness & Workforce"
+     Sub-items to consider:
+     • Resident and Physician Wellness
+  
+  8. "Special Procedures and Emerging Topics"
+     Sub-items to consider:
+     • Migraine Headache Surgery
+     • Overseas Surgery Complications and Ethics
+
+  Important Guidelines:
+  - For Field 1: Choose the SINGLE most appropriate subspecialty focus
+  - For Field 2: Select ALL categories that apply (can be multiple)
+  - For Field 3: Select ALL relevant priority topics AND list specific sub-items in priority_topics_details
+  - Use "Other" with explanation when content doesn't clearly fit predefined categories
+  - Base all classifications on the abstract content and title
+  - If uncertain, use "Other" and provide reasoning rather than forcing a poor fit

@@ -1,0 +1,35 @@
+llm:
+  default_provider: "ollama"  # Options: ollama, openai
+  
+  ollama:
+    base_url: "http://localhost:11434"
+    model: "deepseek-r1:8b"  # Use smaller model for faster response
+    timeout: 120
+    temperature: 0.1
+  
+  openai:
+    model: "gpt-4o-mini"
+    max_tokens: 2000
+    temperature: 0.1
+    # API key will be read from OPENAI_API_KEY environment variable
+
+processing:
+  test_mode: false
+  test_limit: 1
+  batch_size: 1
+  delay_between_requests: 1.0
+  force_reprocess: false
+  strict_validation: false
+
+quality:
+  min_confidence_threshold: 0.5
+  review_threshold: 0.7
+
+output:
+  directory: "output/extracted"
+  format: "yaml"
+
+logging:
+  level: "INFO"
+  console: false
+  file: true
