@@ -8,21 +8,22 @@ from enum import Enum
 from pydantic import BaseModel, Field, validator
 
 
-class SubspecialtyFocus(str, Enum):
-    """FIRST FIELD: Original subspecialty focus categories."""
-    CRANIOFACIAL = "Craniofacial"
-    HAND_UPPER_LIMB = "Hand/upper limb"
-    BREAST = "Breast"
-    AESTHETIC = "Aesthetic"
-    BURN = "Burn"
-    CUTANEOUS_DISORDERS = "Generalized cutaneous disorders"
-    FACIAL_HEAD_NECK = "Facial/head and neck reconstruction"
-    TRUNK_GENITAL_PELVIC_LOWER = "Trunk, genital/pelvic, lower limb reconstruction"
+class StudyDesign(str, Enum):
+    """FIRST FIELD: Study design classification."""
+    RANDOMIZED_CONTROLLED_TRIAL = "Randomized controlled trial"
+    PROSPECTIVE_COHORT = "Prospective cohort"
+    RETROSPECTIVE_COHORT = "Retrospective cohort"
+    CROSS_SECTIONAL = "Cross-sectional study"
+    CASE_CONTROL = "Case-control study"
+    SYSTEMATIC_REVIEW = "Systematic review"
+    CASE_SERIES = "Case series"
+    CASE_REPORT = "Case report"
+    PRECLINICAL_EXPERIMENTAL = "Preclinical Experimental"
     OTHER = "Other"
 
 
-class SuggestedEdits(str, Enum):
-    """SECOND FIELD: Suggested edits - expanded subspecialty categories."""
+class SubspecialtyFocus(str, Enum):
+    """SECOND FIELD: Subspecialty focus categories."""
     AESTHETIC_COSMETIC = "Aesthetic / Cosmetic (non-breast)"
     BREAST = "Breast"
     CRANIOFACIAL = "Craniofacial"
@@ -36,8 +37,10 @@ class SuggestedEdits(str, Enum):
     OTHER = "Other"
 
 
+
+
 class PriorityTopics(str, Enum):
-    """THIRD FIELD: Priority topics in plastic surgery community."""
+    """THIRD FIELD: Alignment with Priority Topics in the Plastic Surgery Community."""
     PATIENT_SAFETY = "Patient Safety & Clinical Standards"
     IMPLANTS_DEVICES = "Implants and Device-Related Issues"
     AESTHETIC_POLICY = "Aesthetic Surgery Policy and Regulation"
@@ -79,8 +82,8 @@ class InputRecord(BaseModel):
 
 class ConfidenceScores(BaseModel):
     """Confidence scores for each extracted field."""
+    study_design: float = Field(default=0.0, ge=0.0, le=1.0)
     subspecialty_focus: float = Field(default=0.0, ge=0.0, le=1.0)
-    suggested_edits: float = Field(default=0.0, ge=0.0, le=1.0)
     priority_topics: float = Field(default=0.0, ge=0.0, le=1.0)
     overall: float = Field(default=0.0, ge=0.0, le=1.0)
 
@@ -114,15 +117,15 @@ class ExtractedData(BaseModel):
     year: Optional[str] = None
     
     # THREE REQUIRED EXTRACTED FIELDS
-    # Field 1: Single selection
+    # Field 1: Study Design - Single selection
+    study_design: Optional[StudyDesign] = None
+    study_design_other: Optional[str] = None  # Specification if "Other" selected
+    
+    # Field 2: Subspecialty Focus - Single selection
     subspecialty_focus: Optional[SubspecialtyFocus] = None
     subspecialty_focus_other: Optional[str] = None  # Specification if "Other" selected
     
-    # Field 2: Multiple selections allowed
-    suggested_edits: Optional[List[SuggestedEdits]] = Field(default_factory=list)
-    suggested_edits_other: Optional[str] = None  # Specification if "Other" included
-    
-    # Field 3: Multiple selections allowed
+    # Field 3: Priority Topics - Multiple selections allowed
     priority_topics: Optional[List[PriorityTopics]] = Field(default_factory=list)
     priority_topics_details: Optional[List[str]] = Field(default_factory=list)  # Specific sub-items
     
@@ -149,6 +152,29 @@ class ProcessingFailure(BaseModel):
     traceback: Optional[str] = None
 
 
+class CostSummary(BaseModel):
+    """Cost tracking for a session."""
+    total_cost: float = 0.0
+    cost_by_model: Dict[str, float] = Field(default_factory=dict)
+    token_usage: Dict[str, Dict[str, int]] = Field(default_factory=dict)  # model -> {input, output, total}
+    average_cost_per_extraction: float = 0.0
+    cost_warnings: List[str] = Field(default_factory=list)
+
+
+class BenchmarkResult(BaseModel):
+    """Results from model benchmarking."""
+    model_name: str
+    total_records: int
+    successful_extractions: int
+    failed_extractions: int
+    average_confidence: float
+    average_processing_time: float
+    total_cost: float
+    average_cost_per_extraction: float
+    accuracy_metrics: Dict[str, float] = Field(default_factory=dict)
+    error_categories: Dict[str, int] = Field(default_factory=dict)
+
+
 class SessionSummary(BaseModel):
     """Summary of a processing session."""
     session_id: str
@@ -165,6 +191,8 @@ class SessionSummary(BaseModel):
     llm_provider_stats: Dict[str, int] = Field(default_factory=dict)
     confidence_distribution: Dict[str, int] = Field(default_factory=dict)
     human_review_required_count: int = 0
+    cost_summary: CostSummary = Field(default_factory=CostSummary)
+    model_usage_stats: Dict[str, int] = Field(default_factory=dict)  # Track which models were used
 
 
 class AuditLogEntry(BaseModel):

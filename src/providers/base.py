@@ -18,6 +18,9 @@ class LLMResponse:
     processing_time: float
     token_count: Optional[int] = None
     confidence: float = 1.0
+    cost: Optional[float] = None
+    input_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
 
 
 class LLMProvider(ABC):

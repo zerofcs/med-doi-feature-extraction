@@ -1,5 +1,10 @@
 # Medical Literature Analysis Pipeline
 
+  1. For Budget-Conscious Processing: Use gpt-5-nano (~26¢ per 2K records)
+  2. For Balanced Performance: Use gpt-5-mini (~$1.30 per 2K records)
+  3. For Maximum Accuracy: Use gpt-5 (~$5.00 per 2K records)
+  4. For Smart Cost Optimization: Use --strategy cost-optimized for automatic selection
+
 ## Overview
 
 This tool automatically analyzes medical literature from DOI records to extract standardized classification data for plastic surgery research. It processes large datasets (2,001+ records) from Excel spreadsheets and uses artificial intelligence to categorize research papers into three key classification areas.

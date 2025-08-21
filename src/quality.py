@@ -46,7 +46,20 @@ class QualityValidator:
             base_confidence *= (1.0 - (0.05 * len(warning_logs)))
             base_confidence = max(base_confidence, 0.3)  # Floor at 0.3
         
-        # Field 1: Subspecialty Focus (single selection)
+        # Field 1: Study Design (single selection)
+        if extracted_data.get('study_design'):
+            if extracted_data['study_design'].lower() == 'other':
+                # Lower confidence for "Other"
+                scores.study_design = base_confidence * 0.7
+                if not extracted_data.get('study_design_other'):
+                    # Even lower if no specification provided
+                    scores.study_design *= 0.8
+            else:
+                scores.study_design = base_confidence * 0.9
+        else:
+            scores.study_design = 0.0
+        
+        # Field 2: Subspecialty Focus (single selection)
         if extracted_data.get('subspecialty_focus'):
             if extracted_data['subspecialty_focus'].lower() == 'other':
                 # Lower confidence for "Other"
@@ -58,27 +71,6 @@ class QualityValidator:
                 scores.subspecialty_focus = base_confidence * 0.9
         else:
             scores.subspecialty_focus = 0.0
-        
-        # Field 2: Suggested Edits (multiple selections)
-        if extracted_data.get('suggested_edits'):
-            edits = extracted_data['suggested_edits']
-            if isinstance(edits, list) and len(edits) > 0:
-                # Check if "Other" is in the list
-                has_other = any('other' in str(e).lower() for e in edits)
-                if has_other:
-                    scores.suggested_edits = base_confidence * 0.75
-                    if not extracted_data.get('suggested_edits_other'):
-                        scores.suggested_edits *= 0.85
-                else:
-                    scores.suggested_edits = base_confidence * 0.9
-                
-                # Reduce confidence if too many categories selected (might indicate uncertainty)
-                if len(edits) > 5:
-                    scores.suggested_edits *= 0.85
-            else:
-                scores.suggested_edits = 0.3
-        else:
-            scores.suggested_edits = 0.0
         
         # Field 3: Priority Topics (multiple selections with details)
         if extracted_data.get('priority_topics'):
@@ -102,8 +94,8 @@ class QualityValidator:
         
         # Calculate overall confidence
         field_scores = [
+            scores.study_design,
             scores.subspecialty_focus,
-            scores.suggested_edits,
             scores.priority_topics
         ]
         
@@ -197,7 +189,7 @@ class QualityValidator:
         if not extracted_data.subspecialty_focus:
             validation_flags.append("Missing Field 1: Subspecialty Focus")
         
-        if not extracted_data.suggested_edits:
+        if not extracted_data.study_design:
             validation_flags.append("Missing Field 2: Suggested Edits")
         
         if not extracted_data.priority_topics:
@@ -209,9 +201,9 @@ class QualityValidator:
                 validation_flags.append("Field 1 'Other' selected without specification")
                 needs_human_review = True
         
-        if extracted_data.suggested_edits:
-            has_other = any(e.value == "Other" for e in extracted_data.suggested_edits)
-            if has_other and not extracted_data.suggested_edits_other:
+        if extracted_data.study_design:
+            has_other = extracted_data.study_design and extracted_data.study_design.value == "Other"
+            if has_other and not extracted_data.study_design_other:
                 validation_flags.append("Field 2 'Other' selected without specification")
                 needs_human_review = True
         
@@ -220,7 +212,7 @@ class QualityValidator:
             needs_human_review = True
         
         # Check for extraction anomalies
-        if extracted_data.suggested_edits and len(extracted_data.suggested_edits) > 7:
+        # Study design doesn't support multiple selections, skip this check
             validation_flags.append("Unusually high number of suggested edits")
             needs_human_review = True
         
@@ -236,7 +228,7 @@ class QualityValidator:
         # Determine if valid
         is_valid = (
             extracted_data.subspecialty_focus is not None and
-            extracted_data.suggested_edits is not None and
+            extracted_data.study_design is not None and
             extracted_data.priority_topics is not None and
             extracted_data.confidence_scores.overall >= self.min_confidence_threshold
         )
@@ -295,7 +287,7 @@ class QualityValidator:
             "has_other_selections": 0,
             "missing_fields": {
                 "subspecialty_focus": 0,
-                "suggested_edits": 0,
+                "study_design": 0,
                 "priority_topics": 0
             },
             "validation_issues": {},
@@ -318,14 +310,14 @@ class QualityValidator:
             
             # Check for "Other" selections
             if (data.subspecialty_focus and data.subspecialty_focus.value == "Other") or \
-               (data.suggested_edits and any(e.value == "Other" for e in data.suggested_edits)):
+               (data.study_design and data.study_design.value == "Other"):
                 report["has_other_selections"] += 1
             
             # Missing fields
             if not data.subspecialty_focus:
                 report["missing_fields"]["subspecialty_focus"] += 1
-            if not data.suggested_edits:
-                report["missing_fields"]["suggested_edits"] += 1
+            if not data.study_design:
+                report["missing_fields"]["study_design"] += 1
             if not data.priority_topics:
                 report["missing_fields"]["priority_topics"] += 1
             
@@ -336,7 +328,7 @@ class QualityValidator:
                 report["validation_issues"][flag] += 1
             
             # Field coverage
-            fields = ["subspecialty_focus", "suggested_edits", "priority_topics"]
+            fields = ["study_design", "subspecialty_focus", "priority_topics"]
             for field in fields:
                 if field not in report["field_coverage"]:
                     report["field_coverage"][field] = 0

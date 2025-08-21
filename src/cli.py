@@ -11,6 +11,10 @@ from typing import Optional, List, Tuple
 import pandas as pd
 import yaml
 import typer
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 from rich.console import Console
 from rich.table import Table
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
@@ -18,7 +22,7 @@ from rich.panel import Panel
 from rich.prompt import Confirm, IntPrompt, Prompt
 import uuid
 
-from .models import InputRecord
+from .models import InputRecord, BenchmarkResult
 from .extractor import ExtractionEngine
 from .audit import AuditLogger
 from .quality import QualityValidator
@@ -186,7 +190,9 @@ def preview(
 def test(
     file: str = typer.Option("data-source.xlsx", "--file", "-f", help="Path to Excel file containing DOI records"),
     skip: int = typer.Option(0, "--skip", "-s", help="Number of records to skip before selecting test record"),
-    provider: Optional[str] = typer.Option(None, "--provider", "-p", help="LLM provider to use (ollama/openai)")
+    provider: Optional[str] = typer.Option(None, "--provider", "-p", help="LLM provider to use (ollama/openai)"),
+    model: Optional[str] = typer.Option(None, "--model", "-m", help="Specific OpenAI model (gpt-5-nano/gpt-5-mini/gpt-5)"),
+    strategy: Optional[str] = typer.Option(None, "--strategy", help="Model selection strategy (cost-optimized/balanced/accuracy-first)")
 ):
     """
     Test extraction with a single record.
@@ -203,6 +209,14 @@ def test(
     config = load_config()
     config['processing']['test_mode'] = True
     config['processing']['test_limit'] = 1
+    
+    # Apply model configuration
+    if provider:
+        config['llm']['default_provider'] = provider
+    if model:
+        config['llm']['default_openai_model'] = model
+    if strategy:
+        config['llm']['model_selection_strategy'] = strategy
     
     # Load one record
     records, total = load_excel_data(file, skip=skip, limit=1)
@@ -224,7 +238,11 @@ def test(
     
     # Run extraction
     async def run_test():
-        result, error = await engine.extract_from_record(record, force_provider=provider)
+        result, error = await engine.extract_from_record(
+            record, 
+            force_provider=provider, 
+            force_model=model
+        )
         return result, error
     
     with console.status("[bold green]Extracting..."):
@@ -240,19 +258,15 @@ def test(
             console.print("\n[bold]Extracted Data (Three Fields):[/bold]")
             console.print(f"  Year: {result.year}")
             
-            console.print(f"\n  [cyan]FIELD 1 - Subspecialty Focus:[/cyan]")
+            console.print(f"\n  [cyan]FIELD 1 - Study Design:[/cyan]")
+            console.print(f"    {result.study_design.value if result.study_design else 'N/A'}")
+            if result.study_design_other:
+                console.print(f"    Other specification: {result.study_design_other}")
+            
+            console.print(f"\n  [cyan]FIELD 2 - Subspecialty Focus:[/cyan]")
             console.print(f"    {result.subspecialty_focus.value if result.subspecialty_focus else 'N/A'}")
             if result.subspecialty_focus_other:
                 console.print(f"    Other specification: {result.subspecialty_focus_other}")
-            
-            console.print(f"\n  [cyan]FIELD 2 - Suggested Edits:[/cyan]")
-            if result.suggested_edits:
-                for edit in result.suggested_edits:
-                    console.print(f"    • {edit.value}")
-            else:
-                console.print("    N/A")
-            if result.suggested_edits_other:
-                console.print(f"    Other specification: {result.suggested_edits_other}")
             
             console.print(f"\n  [cyan]FIELD 3 - Priority Topics:[/cyan]")
             if result.priority_topics:
@@ -285,6 +299,9 @@ def extract(
     skip: Optional[int] = typer.Option(None, "--skip", "-s", help="Number of records to skip before processing"),
     limit: Optional[int] = typer.Option(None, "--limit", "-l", help="Maximum number of records to process"),
     provider: Optional[str] = typer.Option(None, "--provider", "-p", help="LLM provider to use (ollama/openai)"),
+    model: Optional[str] = typer.Option(None, "--model", "-m", help="Specific OpenAI model (gpt-5-nano/gpt-5-mini/gpt-5)"),
+    strategy: Optional[str] = typer.Option(None, "--strategy", help="Model selection strategy (cost-optimized/balanced/accuracy-first)"),
+    max_cost: Optional[float] = typer.Option(None, "--max-cost", help="Maximum cost per extraction ($)"),
     force: Optional[bool] = typer.Option(None, "--force", help="Force reprocess existing DOIs (ignore cache)"),
     batch_size: Optional[int] = typer.Option(None, "--batch-size", "-b", help="Number of records to process concurrently")
 ):
@@ -292,8 +309,8 @@ def extract(
     Run full extraction pipeline on the dataset.
     
     Processes medical literature records to extract three classification fields:
-    1. Subspecialty Focus
-    2. Suggested Edits (expanded categories)
+    1. Study Design
+    2. Subspecialty Focus 
     3. Priority Topics alignment
     
     Interactive mode: Run without flags to be prompted for all options.
@@ -342,6 +359,28 @@ def extract(
             default="ollama"
         )
     
+    # Handle OpenAI model selection
+    if provider == "openai":
+        if model is None and strategy is None:
+            model_choice = Prompt.ask(
+                "[cyan]OpenAI model selection[/cyan]",
+                choices=["strategy", "specific-model"],
+                default="strategy"
+            )
+            
+            if model_choice == "strategy":
+                strategy = Prompt.ask(
+                    "[cyan]Model selection strategy[/cyan]",
+                    choices=["cost-optimized", "balanced", "accuracy-first"],
+                    default="cost-optimized"
+                )
+            else:
+                model = Prompt.ask(
+                    "[cyan]Specific OpenAI model[/cyan]",
+                    choices=["gpt-5-nano", "gpt-5-mini", "gpt-5"],
+                    default="gpt-5-nano"
+                )
+    
     if force is None:
         force = Confirm.ask("[cyan]Force reprocess existing DOIs?[/cyan]", default=False)
     
@@ -356,6 +395,16 @@ def extract(
         config['processing']['force_reprocess'] = True
     if batch_size:
         config['processing']['batch_size'] = batch_size
+    
+    # Apply model selection configuration
+    if provider:
+        config['llm']['default_provider'] = provider
+    if model:
+        config['llm']['default_openai_model'] = model
+    if strategy:
+        config['llm']['model_selection_strategy'] = strategy
+    if max_cost:
+        config['llm']['openai']['cost_limits']['max_cost_per_extraction'] = max_cost
     
     # Load data with skip and limit
     console.print(f"\nLoading records from {file}...")
@@ -481,6 +530,222 @@ def extract(
     console.print(f"\n[bold]Session logs:[/bold] output/logs/session_{session_id}.log")
     console.print(f"[bold]Failures:[/bold] output/failures/failures_{session_id}.yaml")
     console.print(f"[bold]Extracted data:[/bold] {config['output']['directory']}/")
+
+
+@app.command()
+def benchmark(
+    file: str = typer.Option("data-source.xlsx", "--file", "-f", help="Path to Excel file containing DOI records"),
+    sample_size: Optional[int] = typer.Option(None, "--sample-size", "-n", help="Number of records to benchmark"),
+    models: Optional[str] = typer.Option(None, "--models", help="Comma-separated list of models to test (default: all)"),
+    skip: int = typer.Option(0, "--skip", "-s", help="Number of records to skip before sampling")
+):
+    """
+    Benchmark different OpenAI models for accuracy and cost.
+    
+    Tests each model on the same dataset and compares:
+    - Extraction success rate
+    - Average confidence scores  
+    - Processing time
+    - Total cost and cost per extraction
+    - Error categories
+    
+    Examples:
+        python cli.py benchmark                                    # Test all models on default sample
+        python cli.py benchmark --sample-size 100                 # Custom sample size
+        python cli.py benchmark --models gpt-5-nano,gpt-5-mini    # Test specific models
+        python cli.py benchmark -f mydata.xlsx --skip 50          # Custom file and starting point
+    """
+    console.print("\n[bold]Model Benchmarking[/bold]\n")
+    
+    config = load_config()
+    
+    # Determine sample size
+    if sample_size is None:
+        sample_size = config.get('processing', {}).get('benchmark_sample_size', 50)
+    
+    # Determine models to test
+    available_models = ['gpt-5-nano', 'gpt-5-mini', 'gpt-5']
+    if models:
+        test_models = [m.strip() for m in models.split(',')]
+        test_models = [m for m in test_models if m in available_models]
+    else:
+        test_models = available_models
+    
+    console.print(f"[green]Testing models: {', '.join(test_models)}[/green]")
+    console.print(f"[green]Sample size: {sample_size}[/green]")
+    console.print(f"[green]Starting from record: {skip + 1}[/green]\n")
+    
+    # Load sample data
+    console.print(f"Loading sample data from {file}...")
+    records, total = load_excel_data(file, skip=skip, limit=sample_size)
+    
+    if not records:
+        console.print("[red]No records to benchmark[/red]")
+        raise typer.Exit(1)
+    
+    console.print(f"[green]Loaded {len(records)} records for benchmarking[/green]\n")
+    
+    if not Confirm.ask(f"Proceed with benchmarking {len(test_models)} models on {len(records)} records?"):
+        raise typer.Exit(0)
+    
+    # Run benchmarks
+    results = {}
+    
+    for model_name in test_models:
+        console.print(f"\n[bold cyan]Testing {model_name}...[/bold cyan]")
+        
+        # Configure for this model
+        test_config = config.copy()
+        test_config['llm']['default_provider'] = 'openai'
+        test_config['llm']['default_openai_model'] = model_name
+        test_config['llm']['model_selection_strategy'] = 'manual'
+        
+        # Initialize components
+        session_id = f"benchmark_{model_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        audit_logger = AuditLogger(session_id, config=test_config)
+        engine = ExtractionEngine(test_config, audit_logger, session_id)
+        
+        # Run extractions
+        model_results = {
+            'successful': 0,
+            'failed': 0,
+            'total_cost': 0.0,
+            'total_time': 0.0,
+            'confidence_scores': [],
+            'error_categories': {}
+        }
+        
+        async def run_model_benchmark():
+            with Progress(
+                SpinnerColumn(),
+                TextColumn(f"[cyan]Testing {model_name}..."),
+                BarColumn(),
+                TaskProgressColumn(),
+                console=console
+            ) as progress:
+                task = progress.add_task(f"Processing {model_name}", total=len(records))
+                
+                for record in records:
+                    try:
+                        result, error = await engine.extract_from_record(
+                            record, 
+                            force_provider='openai',
+                            force_model=model_name
+                        )
+                        
+                        if result:
+                            model_results['successful'] += 1
+                            model_results['confidence_scores'].append(result.confidence_scores.overall)
+                            
+                            # Extract cost from transparency metadata if available
+                            if hasattr(result.transparency_metadata, 'processing_cost'):
+                                model_results['total_cost'] += result.transparency_metadata.processing_cost
+                        else:
+                            model_results['failed'] += 1
+                            
+                            # Categorize error
+                            category = engine._categorize_failure(Exception(error))
+                            model_results['error_categories'][category] = model_results['error_categories'].get(category, 0) + 1
+                        
+                    except Exception as e:
+                        model_results['failed'] += 1
+                        category = engine._categorize_failure(e)
+                        model_results['error_categories'][category] = model_results['error_categories'].get(category, 0) + 1
+                    
+                    progress.update(task, advance=1)
+        
+        # Run benchmark for this model
+        asyncio.run(run_model_benchmark())
+        
+        # Calculate averages
+        total_records = model_results['successful'] + model_results['failed']
+        avg_confidence = sum(model_results['confidence_scores']) / len(model_results['confidence_scores']) if model_results['confidence_scores'] else 0.0
+        avg_cost = model_results['total_cost'] / total_records if total_records > 0 else 0.0
+        
+        # Store results
+        results[model_name] = BenchmarkResult(
+            model_name=model_name,
+            total_records=total_records,
+            successful_extractions=model_results['successful'],
+            failed_extractions=model_results['failed'],
+            average_confidence=avg_confidence,
+            average_processing_time=model_results['total_time'] / total_records if total_records > 0 else 0.0,
+            total_cost=model_results['total_cost'],
+            average_cost_per_extraction=avg_cost,
+            error_categories=model_results['error_categories']
+        )
+        
+        audit_logger.finalize_session()
+    
+    # Display comparison results
+    console.print("\n" + "="*80)
+    console.print("[bold green]Benchmark Results[/bold green]")
+    console.print("="*80)
+    
+    # Create comparison table
+    comparison_table = Table(show_header=True, header_style="bold magenta")
+    comparison_table.add_column("Model", style="cyan")
+    comparison_table.add_column("Success Rate", justify="right")
+    comparison_table.add_column("Avg Confidence", justify="right")
+    comparison_table.add_column("Total Cost", justify="right")
+    comparison_table.add_column("Cost/Record", justify="right")
+    comparison_table.add_column("Failures", justify="right")
+    
+    for model_name, result in results.items():
+        success_rate = (result.successful_extractions / result.total_records) * 100 if result.total_records > 0 else 0
+        
+        comparison_table.add_row(
+            model_name,
+            f"{success_rate:.1f}%",
+            f"{result.average_confidence:.3f}",
+            f"${result.total_cost:.4f}",
+            f"${result.average_cost_per_extraction:.4f}",
+            str(result.failed_extractions)
+        )
+    
+    console.print(comparison_table)
+    
+    # Cost efficiency analysis
+    console.print(f"\n[bold]Cost Efficiency Analysis:[/bold]")
+    sorted_by_cost = sorted(results.items(), key=lambda x: x[1].average_cost_per_extraction)
+    cheapest_model = sorted_by_cost[0]
+    most_expensive = sorted_by_cost[-1]
+    
+    cost_ratio = most_expensive[1].average_cost_per_extraction / cheapest_model[1].average_cost_per_extraction
+    console.print(f"  Most cost-effective: {cheapest_model[0]} (${cheapest_model[1].average_cost_per_extraction:.4f}/record)")
+    console.print(f"  Most expensive: {most_expensive[0]} (${most_expensive[1].average_cost_per_extraction:.4f}/record)")
+    console.print(f"  Cost difference: {cost_ratio:.1f}x")
+    
+    # Accuracy analysis
+    console.print(f"\n[bold]Accuracy Analysis:[/bold]")
+    sorted_by_confidence = sorted(results.items(), key=lambda x: x[1].average_confidence, reverse=True)
+    highest_confidence = sorted_by_confidence[0]
+    lowest_confidence = sorted_by_confidence[-1]
+    
+    console.print(f"  Highest confidence: {highest_confidence[0]} ({highest_confidence[1].average_confidence:.3f})")
+    console.print(f"  Lowest confidence: {lowest_confidence[0]} ({lowest_confidence[1].average_confidence:.3f})")
+    
+    # Recommendations
+    console.print(f"\n[bold]Recommendations:[/bold]")
+    console.print("  For cost optimization: Use gpt-5-nano for simple extractions")
+    console.print("  For balanced performance: Use gpt-5-mini for most cases")
+    console.print("  For highest accuracy: Use gpt-5 for critical extractions")
+    
+    # Save detailed results
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    benchmark_file = f"output/benchmarks/benchmark_results_{timestamp}.yaml"
+    Path(benchmark_file).parent.mkdir(parents=True, exist_ok=True)
+    
+    with open(benchmark_file, 'w') as f:
+        benchmark_data = {
+            'timestamp': timestamp,
+            'sample_size': sample_size,
+            'models_tested': test_models,
+            'results': {name: result.model_dump() for name, result in results.items()}
+        }
+        yaml.dump(benchmark_data, f, default_flow_style=False)
+    
+    console.print(f"\n[green]Detailed results saved to: {benchmark_file}[/green]")
 
 
 @app.command()
@@ -667,10 +932,10 @@ def export(
                     'doi': record['doi'],
                     'title': record.get('title'),
                     'year': record.get('year'),
+                    'study_design': record.get('study_design'),
+                    'study_design_other': record.get('study_design_other'),
                     'subspecialty_focus': record.get('subspecialty_focus'),
                     'subspecialty_focus_other': record.get('subspecialty_focus_other'),
-                    'suggested_edits': '; '.join(record.get('suggested_edits', [])) if isinstance(record.get('suggested_edits'), list) else record.get('suggested_edits'),
-                    'suggested_edits_other': record.get('suggested_edits_other'),
                     'priority_topics': '; '.join(record.get('priority_topics', [])) if isinstance(record.get('priority_topics'), list) else record.get('priority_topics'),
                     'priority_topics_details': '; '.join(record.get('priority_topics_details', [])) if record.get('priority_topics_details') else '',
                     'overall_confidence': record.get('confidence_scores', {}).get('overall'),
@@ -778,7 +1043,7 @@ def validate(
     
     # Field coverage
     console.print("\n[bold]Field Coverage:[/bold]")
-    fields = ['year', 'article_type', 'study_design', 'subspecialty', 'priority_topics', 'author_country']
+    fields = ['year', 'study_design', 'subspecialty_focus', 'priority_topics']
     
     for field in fields:
         coverage = sum(1 for d in extracted_data if d.get(field))

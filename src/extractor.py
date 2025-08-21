@@ -13,7 +13,7 @@ import traceback
 
 from .models import (
     InputRecord, ExtractedData, TransparencyMetadata,
-    SubspecialtyFocus, SuggestedEdits, PriorityTopics
+    StudyDesign, SubspecialtyFocus, PriorityTopics
 )
 from .providers import LLMProvider, OllamaProvider, OpenAIProvider
 from .audit import AuditLogger
@@ -43,6 +43,12 @@ class ExtractionEngine:
         self.providers = self._initialize_providers()
         self.default_provider = config.get('llm', {}).get('default_provider', 'ollama')
         
+        # Model selection configuration
+        self.model_selection_strategy = config.get('llm', {}).get('model_selection_strategy', 'manual')
+        self.default_openai_model = config.get('llm', {}).get('default_openai_model', 'gpt-5-nano')
+        self.auto_fallback = config.get('processing', {}).get('auto_fallback', True)
+        self.fallback_threshold = config.get('processing', {}).get('fallback_confidence_threshold', 0.6)
+        
         # Load prompts
         self.prompts = self._load_prompts()
     
@@ -63,18 +69,31 @@ class ExtractionEngine:
             except Exception as e:
                 pass  # Ollama initialization failed
         
-        # Initialize OpenAI if configured
+        # Initialize OpenAI models if configured
         if 'openai' in self.config.get('llm', {}):
-            try:
-                openai_provider = OpenAIProvider(self.config['llm']['openai'])
-                is_valid, message = openai_provider.validate_connection()
-                if is_valid:
-                    providers['openai'] = openai_provider
-                    pass  # OpenAI connected successfully
-                else:
-                    pass  # OpenAI connection failed
-            except Exception as e:
-                pass  # OpenAI initialization failed
+            openai_config = self.config['llm']['openai']
+            
+            # Check if we have model-specific configurations
+            if 'models' in openai_config:
+                # Initialize each configured model as a separate provider
+                for model_name in openai_config['models']:
+                    try:
+                        provider_key = f"openai-{model_name}"
+                        openai_provider = OpenAIProvider(openai_config, model_name)
+                        is_valid, message = openai_provider.validate_connection()
+                        if is_valid:
+                            providers[provider_key] = openai_provider
+                    except Exception as e:
+                        pass  # Model initialization failed
+            else:
+                # Legacy single model configuration
+                try:
+                    openai_provider = OpenAIProvider(openai_config)
+                    is_valid, message = openai_provider.validate_connection()
+                    if is_valid:
+                        providers['openai'] = openai_provider
+                except Exception as e:
+                    pass  # OpenAI initialization failed
         
         if not providers:
             raise ValueError("No LLM providers available")
@@ -99,7 +118,8 @@ Extract THREE specific classification fields from medical abstracts.""",
     async def extract_from_record(
         self,
         record: InputRecord,
-        force_provider: Optional[str] = None
+        force_provider: Optional[str] = None,
+        force_model: Optional[str] = None
     ) -> Tuple[Optional[ExtractedData], Optional[str]]:
         """
         Extract structured data from a single record.
@@ -162,13 +182,12 @@ Extract THREE specific classification fields from medical abstracts.""",
             prompt = self._build_prompt(record)
             prompt_hash = self.audit_logger.get_prompt_version_hash(self.prompts['extraction'])
             
-            # Select provider
-            provider_name = force_provider or self.default_provider
-            if provider_name not in self.providers:
-                # Fallback to any available provider
-                provider_name = list(self.providers.keys())[0]
-            
-            provider = self.providers[provider_name]
+            # Select provider and model based on strategy
+            provider_name, provider = self._select_optimal_provider(
+                record=record,
+                force_provider=force_provider,
+                force_model=force_model
+            )
             
             # Log LLM request
             self.audit_logger.log_event(
@@ -254,8 +273,8 @@ Extract THREE specific classification fields from medical abstracts.""",
             # Store "Other" specifications if present
             if extracted.get('subspecialty_focus_other'):
                 transparency_metadata.other_specifications['subspecialty_focus'] = extracted['subspecialty_focus_other']
-            if extracted.get('suggested_edits_other'):
-                transparency_metadata.other_specifications['suggested_edits'] = extracted['suggested_edits_other']
+            if extracted.get('study_design_other'):
+                transparency_metadata.other_specifications['study_design'] = extracted['study_design_other']
             
             # Create extracted data object
             extracted_data = ExtractedData(
@@ -265,13 +284,13 @@ Extract THREE specific classification fields from medical abstracts.""",
                 authors=record.author,
                 journal=record.publication_title,
                 year=year,
-                # Field 1: Single selection
+                # Field 1: Study Design - Single selection
+                study_design=self._parse_enum(extracted.get('study_design'), StudyDesign),
+                study_design_other=extracted.get('study_design_other'),
+                # Field 2: Subspecialty Focus - Single selection
                 subspecialty_focus=self._parse_enum(extracted.get('subspecialty_focus'), SubspecialtyFocus),
                 subspecialty_focus_other=extracted.get('subspecialty_focus_other'),
-                # Field 2: Multiple selections
-                suggested_edits=self._parse_enum_list(extracted.get('suggested_edits', []), SuggestedEdits),
-                suggested_edits_other=extracted.get('suggested_edits_other'),
-                # Field 3: Multiple selections with details
+                # Field 3: Priority Topics - Multiple selections with details
                 priority_topics=self._parse_enum_list(extracted.get('priority_topics', []), PriorityTopics),
                 priority_topics_details=extracted.get('priority_topics_details', []),
                 confidence_scores=confidence_scores,
@@ -336,6 +355,122 @@ Extract THREE specific classification fields from medical abstracts.""",
             
             return None, error_msg
     
+    def _assess_complexity(self, record: InputRecord) -> float:
+        """Assess extraction complexity (0.0=simple, 1.0=complex)."""
+        complexity_score = 0.0
+        
+        # Abstract length and quality
+        if record.abstract_note:
+            abstract_len = len(record.abstract_note)
+            if abstract_len > 2000:
+                complexity_score += 0.3  # Long abstract
+            elif abstract_len > 1000:
+                complexity_score += 0.2
+            elif abstract_len < 200:
+                complexity_score += 0.1  # Very short might be missing info
+        else:
+            complexity_score += 0.4  # Missing abstract is complex
+        
+        # Technical/medical terminology density
+        if record.abstract_note:
+            technical_terms = ['randomized', 'placebo', 'systematic', 'meta-analysis', 
+                             'retrospective', 'prospective', 'cohort', 'case-control',
+                             'statistical', 'multivariate', 'regression', 'p-value',
+                             'confidence interval', 'odds ratio', 'hazard ratio']
+            
+            abstract_lower = record.abstract_note.lower()
+            term_count = sum(1 for term in technical_terms if term in abstract_lower)
+            complexity_score += min(term_count / 10, 0.3)  # Cap at 0.3
+        
+        # Missing critical fields
+        missing_fields = 0
+        if not record.title:
+            missing_fields += 1
+        if not record.author:
+            missing_fields += 1
+        if not record.publication_year:
+            missing_fields += 1
+        
+        complexity_score += missing_fields * 0.1
+        
+        # Cap at 1.0
+        return min(complexity_score, 1.0)
+    
+    def _select_optimal_provider(
+        self, 
+        record: InputRecord, 
+        force_provider: Optional[str] = None,
+        force_model: Optional[str] = None
+    ) -> Tuple[str, LLMProvider]:
+        """Select the optimal provider/model for the given record."""
+        
+        # If forced provider/model, use those
+        if force_provider:
+            if force_model and f"openai-{force_model}" in self.providers:
+                provider_name = f"openai-{force_model}"
+                return provider_name, self.providers[provider_name]
+            elif force_provider in self.providers:
+                return force_provider, self.providers[force_provider]
+        
+        # For non-OpenAI providers, use simple selection
+        if self.default_provider != 'openai':
+            provider_name = self.default_provider
+            if provider_name in self.providers:
+                return provider_name, self.providers[provider_name]
+            else:
+                # Fallback to first available
+                provider_name = list(self.providers.keys())[0]
+                return provider_name, self.providers[provider_name]
+        
+        # Smart OpenAI model selection
+        if self.model_selection_strategy == 'manual':
+            # Use specified default model
+            provider_name = f"openai-{self.default_openai_model}"
+            if provider_name in self.providers:
+                return provider_name, self.providers[provider_name]
+        
+        elif self.model_selection_strategy == 'cost-optimized':
+            # Start with cheapest model that can handle complexity
+            complexity = self._assess_complexity(record)
+            
+            # Try models in order of cost (cheapest first)
+            model_order = ['gpt-5-nano', 'gpt-5-mini', 'gpt-5']
+            for model in model_order:
+                provider_name = f"openai-{model}"
+                if provider_name in self.providers:
+                    provider = self.providers[provider_name]
+                    if provider.can_handle_complexity(complexity):
+                        return provider_name, provider
+        
+        elif self.model_selection_strategy == 'balanced':
+            # Use gpt-5-mini for most cases, nano for simple, gpt-5 for complex
+            complexity = self._assess_complexity(record)
+            if complexity < 0.3:
+                model = 'gpt-5-nano'
+            elif complexity > 0.8:
+                model = 'gpt-5'
+            else:
+                model = 'gpt-5-mini'
+            
+            provider_name = f"openai-{model}"
+            if provider_name in self.providers:
+                return provider_name, self.providers[provider_name]
+        
+        elif self.model_selection_strategy == 'accuracy-first':
+            # Always use most accurate model
+            provider_name = f"openai-gpt-5"
+            if provider_name in self.providers:
+                return provider_name, self.providers[provider_name]
+        
+        # Fallback to any available OpenAI model or any provider
+        for provider_name in self.providers:
+            if provider_name.startswith('openai-'):
+                return provider_name, self.providers[provider_name]
+        
+        # Last resort - any provider
+        provider_name = list(self.providers.keys())[0]
+        return provider_name, self.providers[provider_name]
+    
     def _build_prompt(self, record: InputRecord) -> str:
         """Build extraction prompt from record."""
         return self.prompts['extraction'].format(
@@ -395,8 +530,8 @@ Extract THREE specific classification fields from medical abstracts.""",
         # Convert enums to strings
         if data.subspecialty_focus:
             data_dict['subspecialty_focus'] = data.subspecialty_focus.value
-        if data.suggested_edits:
-            data_dict['suggested_edits'] = [s.value for s in data.suggested_edits]
+        if data.study_design:
+            data_dict['study_design'] = data.study_design.value
         if data.priority_topics:
             data_dict['priority_topics'] = [t.value for t in data.priority_topics]
         

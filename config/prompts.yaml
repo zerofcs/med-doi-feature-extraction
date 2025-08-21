@@ -19,26 +19,27 @@ extraction: |
 
   Extract the following THREE fields and respond with valid JSON:
   {{
-    "subspecialty_focus": "FIELD 1: Select ONE from the list below",
+    "study_design": "FIELD 1: Select ONE from the list below",
+    "study_design_other": "If 'Other' selected above, briefly specify",
+    "subspecialty_focus": "FIELD 2: Select ONE from the list below",
     "subspecialty_focus_other": "If 'Other' selected above, briefly specify",
-    "suggested_edits": ["FIELD 2: Select ALL that apply from the list below"],
-    "suggested_edits_other": "If 'Other' included above, briefly specify",
     "priority_topics": ["FIELD 3: Select ALL that apply from the main categories below"],
     "priority_topics_details": ["List specific sub-items that apply (e.g., 'BBL mortality risk', 'BIA-ALCL')"]
   }}
 
-  FIELD 1 - Subspecialty Focus (SELECT ONE):
-  - "Craniofacial"
-  - "Hand/upper limb"
-  - "Breast"
-  - "Aesthetic"
-  - "Burn"
-  - "Generalized cutaneous disorders"
-  - "Facial/head and neck reconstruction"
-  - "Trunk, genital/pelvic, lower limb reconstruction"
-  - "Other" (specify in subspecialty_focus_other)
+  FIELD 1 - Study Design (SELECT ONE):
+  - "Randomized controlled trial"
+  - "Prospective cohort"
+  - "Retrospective cohort"
+  - "Cross-sectional study"
+  - "Case-control study"
+  - "Systematic review"
+  - "Case series"
+  - "Case report"
+  - "Preclinical Experimental"
+  - "Other" (specify in study_design_other)
 
-  FIELD 2 - Suggested Edits (SELECT ALL THAT APPLY):
+  FIELD 2 - Subspecialty Focus (SELECT ONE):
   - "Aesthetic / Cosmetic (non-breast)"
   - "Breast"
   - "Craniofacial"
@@ -49,7 +50,7 @@ extraction: |
   - "Trunk / Pelvic / Lower-Limb Reconstruction"
   - "Gender-affirming Surgery"
   - "Education & Technology"
-  - "Other" (specify in suggested_edits_other)
+  - "Other" (specify in subspecialty_focus_other)
 
   FIELD 3 - Priority Topics (SELECT ALL THAT APPLY):
   
@@ -101,8 +102,8 @@ extraction: |
      • Overseas Surgery Complications and Ethics
 
   Important Guidelines:
-  - For Field 1: Choose the SINGLE most appropriate subspecialty focus
-  - For Field 2: Select ALL categories that apply (can be multiple)
+  - For Field 1: Choose the SINGLE most appropriate study design
+  - For Field 2: Choose the SINGLE most appropriate subspecialty focus
   - For Field 3: Select ALL relevant priority topics AND list specific sub-items in priority_topics_details
   - Use "Other" with explanation when content doesn't clearly fit predefined categories
   - Base all classifications on the abstract content and title
