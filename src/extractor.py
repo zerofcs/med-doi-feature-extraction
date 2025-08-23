@@ -223,8 +223,8 @@ Extract THREE specific classification fields from medical abstracts.""",
                         system_prompt=self.prompts['system']
                     )
                     # For metadata, show that fallback was used
-                    provider_name = f"{original_provider_name}-fallback-{fallback_name}"
-                    final_model_version = f"{original_model_version}-fallback-{response.model}"
+                    # provider_name = f"{original_provider_name}-fallback-{fallback_name}"
+                    final_model_version = response.model
                 else:
                     raise
             
