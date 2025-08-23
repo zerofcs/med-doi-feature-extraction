@@ -68,7 +68,6 @@ class OpenAIProvider(LLMProvider):
                 "model": self.model_name,
                 "messages": messages,
                 "temperature": self.temperature,
-                "top_p": 0.9,
                 "seed": 42,  # For reproducibility (when supported)
                 "response_format": {"type": "json_object"} if "json" in prompt.lower() else {"type": "text"}
             }
