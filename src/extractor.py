@@ -547,14 +547,16 @@ Extract THREE specific classification fields from medical abstracts.""",
     async def process_batch(
         self,
         records: List[InputRecord],
-        batch_size: int = 10
+        batch_size: int = 10,
+        force_provider: Optional[str] = None,
+        force_model: Optional[str] = None
     ) -> List[Tuple[Optional[ExtractedData], Optional[str]]]:
         """Process a batch of records concurrently."""
         results = []
         
         for i in range(0, len(records), batch_size):
             batch = records[i:i + batch_size]
-            tasks = [self.extract_from_record(record) for record in batch]
+            tasks = [self.extract_from_record(record, force_provider=force_provider, force_model=force_model) for record in batch]
             batch_results = await asyncio.gather(*tasks)
             results.extend(batch_results)
             

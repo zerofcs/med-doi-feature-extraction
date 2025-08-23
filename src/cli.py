@@ -474,7 +474,7 @@ def extract(
             
             for i in range(0, len(records), batch_size):
                 batch = records[i:i + batch_size]
-                batch_results = await engine.process_batch(batch, batch_size=1)
+                batch_results = await engine.process_batch(batch, batch_size=1, force_provider=provider, force_model=model)
                 results.extend(batch_results)
                 
                 # Process batch results and update counters
