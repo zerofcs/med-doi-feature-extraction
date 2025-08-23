@@ -20,7 +20,7 @@ llm:
     models:
       "gpt-5-nano":
         max_tokens: 2000  # Will use max_completion_tokens for GPT-5 models
-        temperature: 0.1
+        temperature: 1.0
         pricing:
           input_per_1m: 0.05   # $0.05 per 1M input tokens (planned pricing)
           output_per_1m: 0.40  # $0.40 per 1M output tokens
@@ -29,7 +29,7 @@ llm:
         
       "gpt-5-mini":
         max_tokens: 2000  # Will use max_completion_tokens for GPT-5 models
-        temperature: 0.1
+        temperature: 1.0
         pricing:
           input_per_1m: 0.25   # $0.25 per 1M input tokens (planned pricing)
           output_per_1m: 2.00  # $2.00 per 1M output tokens
@@ -38,7 +38,7 @@ llm:
         
       "gpt-5":
         max_tokens: 2000  # Will use max_completion_tokens for GPT-5 models
-        temperature: 0.1
+        temperature: 1.0
         pricing:
           input_per_1m: 1.25   # $1.25 per 1M input tokens (planned pricing)
           output_per_1m: 10.00 # $10.00 per 1M output tokens
