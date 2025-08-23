@@ -210,14 +210,6 @@ def test(
     config['processing']['test_mode'] = True
     config['processing']['test_limit'] = 1
     
-    # Apply model configuration
-    if provider:
-        config['llm']['default_provider'] = provider
-    if model:
-        config['llm']['default_openai_model'] = model
-    if strategy:
-        config['llm']['model_selection_strategy'] = strategy
-    
     # Load one record
     records, total = load_excel_data(file, skip=skip, limit=1)
     if not records:
@@ -230,6 +222,14 @@ def test(
     console.print(f"[green]Testing record {skip + 1} of {total} total records with DOIs[/green]")
     console.print(f"[green]DOI:[/green] {record.doi}")
     console.print(f"[green]Title:[/green] {record.title[:100] if record.title else 'N/A'}...")
+    
+    # Apply model configuration
+    if provider:
+        config['llm']['default_provider'] = provider
+    if model:
+        config['llm']['default_openai_model'] = model
+    if strategy:
+        config['llm']['model_selection_strategy'] = strategy
     
     # Initialize components
     session_id = f"test_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -431,9 +431,6 @@ def extract(
     session_id = f"extract_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
     audit_logger = AuditLogger(session_id, config=config)
     engine = ExtractionEngine(config, audit_logger, session_id)
-    
-    if provider:
-        config['llm']['default_provider'] = provider
     
     console.print(f"\n[bold]Session ID:[/bold] {session_id}")
     console.print(f"[bold]Output directory:[/bold] {config['output']['directory']}")

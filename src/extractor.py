@@ -204,8 +204,9 @@ Extract THREE specific classification fields from medical abstracts.""",
                     system_prompt=self.prompts['system']
                 )
             except Exception as e:
-                # Try fallback provider if available
+                # Try fallback provider if available, but preserve original provider name for metadata
                 if len(self.providers) > 1:
+                    original_provider_name = provider_name
                     fallback_name = [k for k in self.providers.keys() if k != provider_name][0]
                     self.audit_logger.log_event(
                         doi=doi,
@@ -213,11 +214,12 @@ Extract THREE specific classification fields from medical abstracts.""",
                         event_data={"from": provider_name, "to": fallback_name, "reason": str(e)}
                     )
                     provider = self.providers[fallback_name]
-                    provider_name = fallback_name
                     response = await provider.generate(
                         prompt=prompt,
                         system_prompt=self.prompts['system']
                     )
+                    # For metadata, show that fallback was used
+                    provider_name = f"{original_provider_name}-fallback-{fallback_name}"
                 else:
                     raise
             

@@ -63,15 +63,23 @@ class OpenAIProvider(LLMProvider):
             messages.append({"role": "user", "content": prompt})
             
             # Make API call
-            response = await self.client.chat.completions.create(
-                model=self.model_name,
-                messages=messages,
-                max_tokens=self.max_tokens,
-                temperature=self.temperature,
-                top_p=0.9,
-                seed=42,  # For reproducibility (when supported)
-                response_format={"type": "json_object"} if "json" in prompt.lower() else {"type": "text"}
-            )
+            # GPT-5 models use max_completion_tokens instead of max_tokens
+            api_params = {
+                "model": self.model_name,
+                "messages": messages,
+                "temperature": self.temperature,
+                "top_p": 0.9,
+                "seed": 42,  # For reproducibility (when supported)
+                "response_format": {"type": "json_object"} if "json" in prompt.lower() else {"type": "text"}
+            }
+            
+            # Use correct token parameter based on model
+            if self.model_name.startswith('gpt-5'):
+                api_params["max_completion_tokens"] = self.max_tokens
+            else:
+                api_params["max_tokens"] = self.max_tokens
+                
+            response = await self.client.chat.completions.create(**api_params)
             
             processing_time = time.time() - start_time
             
