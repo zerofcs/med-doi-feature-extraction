@@ -197,12 +197,16 @@ Extract THREE specific classification fields from medical abstracts.""",
                 llm_prompt=prompt
             )
             
+            # Capture original model version before potential fallback
+            original_model_version = provider.model_name if hasattr(provider, 'model_name') else provider.config.get('model')
+            
             # Generate extraction
             try:
                 response = await provider.generate(
                     prompt=prompt,
                     system_prompt=self.prompts['system']
                 )
+                final_model_version = response.model
             except Exception as e:
                 # Try fallback provider if available, but preserve original provider name for metadata
                 if len(self.providers) > 1:
@@ -220,6 +224,7 @@ Extract THREE specific classification fields from medical abstracts.""",
                     )
                     # For metadata, show that fallback was used
                     provider_name = f"{original_provider_name}-fallback-{fallback_name}"
+                    final_model_version = f"{original_model_version}-fallback-{response.model}"
                 else:
                     raise
             
@@ -229,7 +234,7 @@ Extract THREE specific classification fields from medical abstracts.""",
                 prompt=prompt,
                 response=response.content,
                 provider=provider_name,
-                model=response.model
+                model=final_model_version # Use final_model_version here
             )
             
             self.audit_logger.log_event(
@@ -265,7 +270,7 @@ Extract THREE specific classification fields from medical abstracts.""",
                 processing_session_id=self.session_id,
                 processing_timestamp=start_time,
                 llm_provider_used=provider_name,
-                llm_model_version=response.model,
+                llm_model_version=final_model_version, # Use final_model_version here
                 prompt_version_hash=prompt_hash,
                 processing_time_seconds=processing_time,
                 warning_logs=warning_logs,
