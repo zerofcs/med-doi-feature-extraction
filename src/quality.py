@@ -72,25 +72,14 @@ class QualityValidator:
         else:
             scores.subspecialty_focus = 0.0
         
-        # Field 3: Priority Topics (multiple selections with details)
-        if extracted_data.get('priority_topics'):
+        # Field 3: Priority Topic (single selection; accept legacy list)
+        topic_present = False
+        if extracted_data.get('priority_topic'):
+            topic_present = True
+        elif extracted_data.get('priority_topics'):
             topics = extracted_data['priority_topics']
-            details = extracted_data.get('priority_topics_details', [])
-            
-            if isinstance(topics, list) and len(topics) > 0:
-                scores.priority_topics = base_confidence * 0.85
-                
-                # Bonus confidence if specific details are provided
-                if details and len(details) > 0:
-                    scores.priority_topics = min(scores.priority_topics * 1.1, 1.0)
-                
-                # Reduce confidence if too many topics (might indicate uncertainty)
-                if len(topics) > 6:
-                    scores.priority_topics *= 0.8
-            else:
-                scores.priority_topics = 0.3
-        else:
-            scores.priority_topics = 0.0
+            topic_present = isinstance(topics, list) and len(topics) > 0
+        scores.priority_topics = base_confidence * 0.85 if topic_present else 0.0
         
         # Calculate overall confidence
         field_scores = [
@@ -186,23 +175,21 @@ class QualityValidator:
             needs_human_review = True
         
         # Check for missing critical fields
-        if not extracted_data.subspecialty_focus:
-            validation_flags.append("Missing Field 1: Subspecialty Focus")
-        
         if not extracted_data.study_design:
-            validation_flags.append("Missing Field 2: Suggested Edits")
-        
-        if not extracted_data.priority_topics:
-            validation_flags.append("Missing Field 3: Priority Topics")
+            validation_flags.append("Missing Field 1: Study Design")
+        if not extracted_data.subspecialty_focus:
+            validation_flags.append("Missing Field 2: Subspecialty Focus")
+        if not getattr(extracted_data, 'priority_topic', None):
+            validation_flags.append("Missing Field 3: Priority Topic")
         
         # Check for "Other" selections that need review
-        if extracted_data.subspecialty_focus and extracted_data.subspecialty_focus.value == "Other":
+        if extracted_data.subspecialty_focus and str(extracted_data.subspecialty_focus).lower() == "other":
             if not extracted_data.subspecialty_focus_other:
                 validation_flags.append("Field 1 'Other' selected without specification")
                 needs_human_review = True
         
         if extracted_data.study_design:
-            has_other = extracted_data.study_design and extracted_data.study_design.value == "Other"
+            has_other = str(extracted_data.study_design).lower() == "other"
             if has_other and not extracted_data.study_design_other:
                 validation_flags.append("Field 2 'Other' selected without specification")
                 needs_human_review = True
@@ -211,14 +198,7 @@ class QualityValidator:
         if extracted_data.confidence_scores.overall < self.review_threshold:
             needs_human_review = True
         
-        # Check for extraction anomalies
-        # Study design doesn't support multiple selections, skip this check
-            validation_flags.append("Unusually high number of suggested edits")
-            needs_human_review = True
-        
-        if extracted_data.priority_topics and len(extracted_data.priority_topics) > 6:
-            validation_flags.append("Unusually high number of priority topics")
-            needs_human_review = True
+        # No multi-select anomalies for single topic
         
         # Check for warnings that might need review
         if extracted_data.transparency_metadata.warning_logs:
@@ -227,9 +207,9 @@ class QualityValidator:
         
         # Determine if valid
         is_valid = (
-            extracted_data.subspecialty_focus is not None and
             extracted_data.study_design is not None and
-            extracted_data.priority_topics is not None and
+            extracted_data.subspecialty_focus is not None and
+            getattr(extracted_data, 'priority_topic', None) is not None and
             extracted_data.confidence_scores.overall >= self.min_confidence_threshold
         )
         

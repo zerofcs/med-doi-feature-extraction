@@ -4,51 +4,9 @@ Pydantic data models for the medical literature extraction pipeline.
 
 from datetime import datetime
 from typing import Optional, Dict, Any, List
-from enum import Enum
 from pydantic import BaseModel, Field, validator
 
 
-class StudyDesign(str, Enum):
-    """FIRST FIELD: Study design classification."""
-    RANDOMIZED_CONTROLLED_TRIAL = "Randomized controlled trial"
-    PROSPECTIVE_COHORT = "Prospective cohort"
-    RETROSPECTIVE_COHORT = "Retrospective cohort"
-    CROSS_SECTIONAL = "Cross-sectional study"
-    CASE_CONTROL = "Case-control study"
-    SYSTEMATIC_REVIEW = "Systematic review"
-    CASE_SERIES = "Case series"
-    CASE_REPORT = "Case report"
-    PRECLINICAL_EXPERIMENTAL = "Preclinical Experimental"
-    OTHER = "Other"
-
-
-class SubspecialtyFocus(str, Enum):
-    """SECOND FIELD: Subspecialty focus categories."""
-    AESTHETIC_COSMETIC = "Aesthetic / Cosmetic (non-breast)"
-    BREAST = "Breast"
-    CRANIOFACIAL = "Craniofacial"
-    HAND_UPPER_PERIPHERAL = "Hand/Upper extremity & Peripheral Nerve"
-    BURN = "Burn"
-    CUTANEOUS_DISORDERS = "Generalized Cutaneous Disorders"
-    HEAD_NECK_RECONSTRUCTION = "Head & Neck Reconstruction"
-    TRUNK_PELVIC_LOWER = "Trunk / Pelvic / Lower-Limb Reconstruction"
-    GENDER_AFFIRMING = "Gender-affirming Surgery"
-    EDUCATION_TECHNOLOGY = "Education & Technology"
-    OTHER = "Other"
-
-
-
-
-class PriorityTopics(str, Enum):
-    """THIRD FIELD: Alignment with Priority Topics in the Plastic Surgery Community."""
-    PATIENT_SAFETY = "Patient Safety & Clinical Standards"
-    IMPLANTS_DEVICES = "Implants and Device-Related Issues"
-    AESTHETIC_POLICY = "Aesthetic Surgery Policy and Regulation"
-    TECHNOLOGY_INNOVATION = "Technology and Innovation"
-    HEALTH_SYSTEM_PRACTICE = "Health System and Practice Regulation"
-    LEGISLATION_ADVOCACY = "Legislation, Advocacy & Public Health"
-    WELLNESS_WORKFORCE = "Wellness & Workforce"
-    SPECIAL_PROCEDURES = "Special Procedures and Emerging Topics"
 
 
 class InputRecord(BaseModel):
@@ -118,16 +76,15 @@ class ExtractedData(BaseModel):
     
     # THREE REQUIRED EXTRACTED FIELDS
     # Field 1: Study Design - Single selection
-    study_design: Optional[StudyDesign] = None
+    study_design: Optional[str] = None
     study_design_other: Optional[str] = None  # Specification if "Other" selected
     
     # Field 2: Subspecialty Focus - Single selection
-    subspecialty_focus: Optional[SubspecialtyFocus] = None
+    subspecialty_focus: Optional[str] = None
     subspecialty_focus_other: Optional[str] = None  # Specification if "Other" selected
     
-    # Field 3: Priority Topics - Multiple selections allowed
-    priority_topics: Optional[List[PriorityTopics]] = Field(default_factory=list)
-    priority_topics_details: Optional[List[str]] = Field(default_factory=list)  # Specific sub-items
+    # Field 3: Priority Topic - Single selection
+    priority_topic: Optional[str] = None
     
     # Quality metrics
     confidence_scores: ConfidenceScores = Field(default_factory=ConfidenceScores)

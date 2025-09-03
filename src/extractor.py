@@ -12,8 +12,7 @@ from typing import Dict, Any, Optional, List, Tuple
 import traceback
 
 from .models import (
-    InputRecord, ExtractedData, TransparencyMetadata,
-    StudyDesign, SubspecialtyFocus, PriorityTopics
+    InputRecord, ExtractedData, TransparencyMetadata
 )
 from .providers import LLMProvider, OllamaProvider, OpenAIProvider
 from .audit import AuditLogger
@@ -51,6 +50,8 @@ class ExtractionEngine:
         
         # Load prompts
         self.prompts = self._load_prompts()
+        # Load data-driven field options
+        self.field_options = self._load_field_options()
     
     def _initialize_providers(self) -> Dict[str, LLMProvider]:
         """Initialize available LLM providers."""
@@ -113,6 +114,35 @@ class ExtractionEngine:
 Extract THREE specific classification fields from medical abstracts.""",
             
             'extraction': """Analyze this medical literature and extract three classification fields..."""
+        }
+
+    def _load_field_options(self) -> Dict[str, List[str]]:
+        """Load allowed options for each extracted field from YAML to avoid hard-coding."""
+        fields_file = Path('config/fields.yaml')
+        if fields_file.exists():
+            with open(fields_file, 'r') as f:
+                data = yaml.safe_load(f) or {}
+                def to_list(x):
+                    return [str(v) for v in (x or [])]
+                return {
+                    'study_design': to_list(data.get('study_design')),
+                    'subspecialty_focus': to_list(data.get('subspecialty_focus')),
+                    'priority_topic': to_list(data.get('priority_topic')),
+                }
+        # Fallback minimal defaults
+        return {
+            'study_design': [
+                "Randomized controlled trial", "Prospective cohort", "Retrospective cohort",
+                "Cross-sectional study", "Case-control study", "Systematic review",
+                "Case series", "Case report", "Preclinical Experimental", "Other"
+            ],
+            'subspecialty_focus': [
+                "Aesthetic / Cosmetic (non-breast)", "Breast", "Craniofacial",
+                "Hand/Upper extremity & Peripheral Nerve", "Burn", "Generalized Cutaneous Disorders",
+                "Head & Neck Reconstruction", "Trunk / Pelvic / Lower-Limb Reconstruction",
+                "Gender-affirming Surgery", "Education & Technology", "Other"
+            ],
+            'priority_topic': ["Other"]
         }
     
     async def extract_from_record(
@@ -283,6 +313,14 @@ Extract THREE specific classification fields from medical abstracts.""",
             if extracted.get('study_design_other'):
                 transparency_metadata.other_specifications['study_design'] = extracted['study_design_other']
             
+            # Normalize choices using data-driven options
+            study_design = self._normalize_choice(extracted.get('study_design'), self.field_options['study_design'])
+            subspecialty_focus = self._normalize_choice(extracted.get('subspecialty_focus'), self.field_options['subspecialty_focus'])
+            pt_value = extracted.get('priority_topic')
+            if not pt_value and isinstance(extracted.get('priority_topics'), list) and extracted.get('priority_topics'):
+                pt_value = extracted['priority_topics'][0]
+            priority_topic = self._normalize_choice(pt_value, self.field_options['priority_topic'])
+
             # Create extracted data object
             extracted_data = ExtractedData(
                 doi=doi,
@@ -291,15 +329,11 @@ Extract THREE specific classification fields from medical abstracts.""",
                 authors=record.author,
                 journal=record.publication_title,
                 year=year,
-                # Field 1: Study Design - Single selection
-                study_design=self._parse_enum(extracted.get('study_design'), StudyDesign),
+                study_design=study_design,
                 study_design_other=extracted.get('study_design_other'),
-                # Field 2: Subspecialty Focus - Single selection
-                subspecialty_focus=self._parse_enum(extracted.get('subspecialty_focus'), SubspecialtyFocus),
+                subspecialty_focus=subspecialty_focus,
                 subspecialty_focus_other=extracted.get('subspecialty_focus_other'),
-                # Field 3: Priority Topics - Multiple selections with details
-                priority_topics=self._parse_enum_list(extracted.get('priority_topics', []), PriorityTopics),
-                priority_topics_details=extracted.get('priority_topics_details', []),
+                priority_topic=priority_topic,
                 confidence_scores=confidence_scores,
                 transparency_metadata=transparency_metadata,
                 processing_metadata={
@@ -528,19 +562,35 @@ Extract THREE specific classification fields from medical abstracts.""",
             return "validation_error"
         else:
             return "llm_error"
+
+    def _normalize_choice(self, value: Optional[str], allowed: List[str]) -> Optional[str]:
+        """Normalize a free-text choice to an allowed option (case-insensitive).
+        Falls back to 'Other' when available if no close match can be found.
+        """
+        if value is None:
+            return None
+        v = str(value).strip()
+        # Exact case-insensitive match
+        for opt in allowed:
+            if v.lower() == opt.lower():
+                return opt
+        # Contains match
+        for opt in allowed:
+            if opt.lower() in v.lower() or v.lower() in opt.lower():
+                return opt
+        # Fallback to Other
+        for opt in allowed:
+            if opt.lower() == 'other':
+                return opt
+        return v
     
     def _save_extraction(self, data: ExtractedData, output_file: Path):
         """Save extraction to YAML file."""
-        # Convert to dict with readable enum values
+        # Convert to dict
         data_dict = data.model_dump()
-        
-        # Convert enums to strings
-        if data.subspecialty_focus:
-            data_dict['subspecialty_focus'] = data.subspecialty_focus.value
-        if data.study_design:
-            data_dict['study_design'] = data.study_design.value
-        if data.priority_topics:
-            data_dict['priority_topics'] = [t.value for t in data.priority_topics]
+        # Ensure single priority_topic key (backward compatible cleanup)
+        if 'priority_topics' in data_dict:
+            data_dict.pop('priority_topics', None)
         
         # Convert datetime to string
         data_dict['transparency_metadata']['processing_timestamp'] = (

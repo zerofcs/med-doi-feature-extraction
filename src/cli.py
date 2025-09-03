@@ -259,23 +259,18 @@ def test(
             console.print(f"  Year: {result.year}")
             
             console.print(f"\n  [cyan]FIELD 1 - Study Design:[/cyan]")
-            console.print(f"    {result.study_design.value if result.study_design else 'N/A'}")
+            console.print(f"    {result.study_design if result.study_design else 'N/A'}")
             if result.study_design_other:
                 console.print(f"    Other specification: {result.study_design_other}")
             
             console.print(f"\n  [cyan]FIELD 2 - Subspecialty Focus:[/cyan]")
-            console.print(f"    {result.subspecialty_focus.value if result.subspecialty_focus else 'N/A'}")
+            console.print(f"    {result.subspecialty_focus if result.subspecialty_focus else 'N/A'}")
             if result.subspecialty_focus_other:
                 console.print(f"    Other specification: {result.subspecialty_focus_other}")
             
-            console.print(f"\n  [cyan]FIELD 3 - Priority Topics:[/cyan]")
-            if result.priority_topics:
-                for topic in result.priority_topics:
-                    console.print(f"    • {topic.value}")
-                if result.priority_topics_details:
-                    console.print("    [dim]Details:[/dim]")
-                    for detail in result.priority_topics_details:
-                        console.print(f"      - {detail}")
+            console.print(f"\n  [cyan]FIELD 3 - Priority Topic:[/cyan]")
+            if getattr(result, 'priority_topic', None):
+                console.print(f"    {result.priority_topic}")
             else:
                 console.print("    N/A")
             
@@ -311,7 +306,7 @@ def extract(
     Processes medical literature records to extract three classification fields:
     1. Study Design
     2. Subspecialty Focus 
-    3. Priority Topics alignment
+    3. Priority Topic (single selection)
     
     Interactive mode: Run without flags to be prompted for all options.
     
