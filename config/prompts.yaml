@@ -27,56 +27,14 @@ extraction: |
   }}
 
   FIELD 1 - Study Design (SELECT ONE):
-  - "Randomized controlled trial"
-  - "Prospective cohort"
-  - "Retrospective cohort"
-  - "Cross-sectional study"
-  - "Case-control study"
-  - "Systematic review"
-  - "Case series"
-  - "Case report"
-  - "Preclinical Experimental"
-  - "Other" (specify in study_design_other)
+  - {study_design_options}
 
   FIELD 2 - Subspecialty Focus (SELECT ONE):
-  - "Aesthetic / Cosmetic (non-breast)"
-  - "Breast"
-  - "Craniofacial"
-  - "Hand/Upper extremity & Peripheral Nerve"
-  - "Burn"
-  - "Generalized Cutaneous Disorders"
-  - "Head & Neck Reconstruction"
-  - "Trunk / Pelvic / Lower-Limb Reconstruction"
-  - "Gender-affirming Surgery"
-  - "Education & Technology"
-  - "Other" (specify in subspecialty_focus_other)
+  - {subspecialty_focus_options}
 
   FIELD 3 - Priority Topics (SELECT ONE):
   
-    • Gluteal Fat Grafting Safety (incl. BBL mortality risk)
-      • Liposuction Safety
-      • ADM (Acellular Dermal Matrix) Safety Updates
-      • Injectable Fillers Safety
-      • Malignant Hyperthermia
-      • Ambulatory Surgery Adverse Event Prevention
-      • Breast Implant-Associated Anaplastic Large Cell Lymphoma (BIA-ALCL)
-      • FDA Warning: Silicone Injection
-      • Administration of Botulinum Toxin Neuromodulators
-      • Breast Augmentation in Teenagers
-      • Social Media Ethics
-      • Artificial Intelligence (AI) in Plastic Surgery
-      • Telemedicine and Virtual Care
-      • Regenerative Medicine (incl. Stem Cells and Fat Grafting)
-      • Opioid Prescribing
-      • Economic Evaluations
-       • Breast Cancer Patient Education Act
-      • Ensuring Lasting Smiles Act
-      • Global Surgery / Access to Reconstructive Care
-      • Diversity, Equity, and Inclusion (DEI)
-      • Resident and Physician Wellness
-      • Migraine Headache Surgery
-      • Overseas Surgery Complications and Ethics
-
+    • {priority_topic_options}
 
   Important Guidelines:
   - For Field 1: Choose the SINGLE most appropriate study design

@@ -919,22 +919,44 @@ def export(
             with open(yaml_file, 'r') as f:
                 record = yaml.safe_load(f)
                 
-                # Flatten for export
+                # Flatten for export with enhanced confidence and model info
+                confidence_scores = record.get('confidence_scores', {})
+                transparency_metadata = record.get('transparency_metadata', {})
+                
                 flat_record = {
                     'doi': record['doi'],
                     'title': record.get('title'),
+                    'authors': record.get('authors'),
+                    'journal': record.get('journal'),
                     'year': record.get('year'),
                     'study_design': record.get('study_design'),
                     'study_design_other': record.get('study_design_other'),
                     'subspecialty_focus': record.get('subspecialty_focus'),
                     'subspecialty_focus_other': record.get('subspecialty_focus_other'),
-                    'priority_topics': '; '.join(record.get('priority_topics', [])) if isinstance(record.get('priority_topics'), list) else record.get('priority_topics'),
-                    'priority_topics_details': '; '.join(record.get('priority_topics_details', [])) if record.get('priority_topics_details') else '',
-                    'overall_confidence': record.get('confidence_scores', {}).get('overall'),
-                    'human_review_required': record.get('transparency_metadata', {}).get('human_review_required'),
-                    'has_warnings': len(record.get('transparency_metadata', {}).get('warning_logs', [])) > 0,
-                    'processing_session': record.get('transparency_metadata', {}).get('processing_session_id'),
-                    'processing_date': record.get('transparency_metadata', {}).get('processing_timestamp')
+                    'priority_topic': record.get('priority_topic'),
+                    
+                    # Enhanced confidence scores
+                    'overall_confidence': confidence_scores.get('overall'),
+                    'study_design_confidence': confidence_scores.get('study_design'),
+                    'subspecialty_focus_confidence': confidence_scores.get('subspecialty_focus'), 
+                    'priority_topics_confidence': confidence_scores.get('priority_topics'),
+                    
+                    # Model and processing info
+                    'llm_provider': transparency_metadata.get('llm_provider_used'),
+                    'llm_model_version': transparency_metadata.get('llm_model_version'),
+                    'processing_time_seconds': transparency_metadata.get('processing_time_seconds'),
+                    'retry_count': transparency_metadata.get('retry_count', 0),
+                    
+                    # Quality indicators
+                    'human_review_required': transparency_metadata.get('human_review_required'),
+                    'has_warnings': len(transparency_metadata.get('warning_logs', [])) > 0,
+                    'warning_count': len(transparency_metadata.get('warning_logs', [])),
+                    'validation_flags': '; '.join(transparency_metadata.get('validation_flags', [])),
+                    
+                    # Processing metadata
+                    'processing_session': transparency_metadata.get('processing_session_id'),
+                    'processing_date': transparency_metadata.get('processing_timestamp'),
+                    'prompt_version_hash': transparency_metadata.get('prompt_version_hash')
                 }
                 data.append(flat_record)
             

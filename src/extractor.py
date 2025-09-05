@@ -513,14 +513,23 @@ Extract THREE specific classification fields from medical abstracts.""",
         return provider_name, self.providers[provider_name]
     
     def _build_prompt(self, record: InputRecord) -> str:
-        """Build extraction prompt from record."""
+        """Build extraction prompt from record with dynamic field injection."""
+        # Create formatted field lists for injection into prompt
+        study_design_options = "\n  - ".join([f'"{opt}"' for opt in self.field_options['study_design']])
+        subspecialty_focus_options = "\n  - ".join([f'"{opt}"' for opt in self.field_options['subspecialty_focus']])
+        priority_topic_options = "\n    • ".join(self.field_options['priority_topic'])
+        
+        # Format the prompt with both record data and field options
         return self.prompts['extraction'].format(
             title=record.title or "Not provided",
             authors=record.author or "Not provided",
             journal=record.publication_title or "Not provided",
             year=int(record.publication_year) if record.publication_year else "Not provided",
             abstract=record.abstract_note or "Not provided",
-            affiliations=record.author_affiliation_new or "Not provided"
+            affiliations=record.author_affiliation_new or "Not provided",
+            study_design_options=study_design_options,
+            subspecialty_focus_options=subspecialty_focus_options,
+            priority_topic_options=priority_topic_options
         )
     
     def _parse_enum(self, value: Optional[str], enum_class) -> Optional[Any]:
