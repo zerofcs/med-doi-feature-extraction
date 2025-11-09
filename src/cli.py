@@ -22,10 +22,10 @@ from rich.panel import Panel
 from rich.prompt import Confirm, IntPrompt, Prompt
 import uuid
 
-from .models import InputRecord, BenchmarkResult
+from .core.models import InputRecord, BenchmarkResult
 from .extractor import ExtractionEngine
-from .audit import AuditLogger
-from .quality import QualityValidator
+from .core.audit import AuditLogger
+from .core.quality import QualityValidator
 
 # Initialize Typer app with custom context settings
 app = typer.Typer(
@@ -288,8 +288,8 @@ def test(
     audit_logger.finalize_session()
 
 
-@app.command()
-def extract(
+@app.command(name="extract-doi")
+def extract_doi(
     file: Optional[str] = typer.Option(None, "--file", "-f", help="Path to Excel file containing DOI records"),
     skip: Optional[int] = typer.Option(None, "--skip", "-s", help="Number of records to skip before processing"),
     limit: Optional[int] = typer.Option(None, "--limit", "-l", help="Maximum number of records to process"),
@@ -301,20 +301,20 @@ def extract(
     batch_size: Optional[int] = typer.Option(None, "--batch-size", "-b", help="Number of records to process concurrently")
 ):
     """
-    Run full extraction pipeline on the dataset.
-    
+    Run DOI extraction pipeline on medical literature dataset.
+
     Processes medical literature records to extract three classification fields:
     1. Study Design
-    2. Subspecialty Focus 
+    2. Subspecialty Focus
     3. Priority Topic (single selection)
-    
+
     Interactive mode: Run without flags to be prompted for all options.
-    
+
     Examples:
-        python cli.py extract                          # Interactive mode
-        python cli.py extract --skip 100 --limit 50    # Process records 101-150
-        python cli.py extract -s 500 -l 100 -p openai  # Skip 500, process 100 with OpenAI
-        python cli.py extract --force --batch-size 10  # Reprocess all with batch size 10
+        python cli.py extract-doi                          # Interactive mode
+        python cli.py extract-doi --skip 100 --limit 50    # Process records 101-150
+        python cli.py extract-doi -s 500 -l 100 -p openai  # Skip 500, process 100 with OpenAI
+        python cli.py extract-doi --force --batch-size 10  # Reprocess all with batch size 10
     """
     console.print("\n[bold]Medical Literature Extraction Pipeline[/bold]\n")
     
@@ -522,6 +522,172 @@ def extract(
     console.print(f"\n[bold]Session logs:[/bold] output/logs/session_{session_id}.log")
     console.print(f"[bold]Failures:[/bold] output/failures/failures_{session_id}.yaml")
     console.print(f"[bold]Extracted data:[/bold] {config['output']['directory']}/")
+
+
+@app.command()
+def extract(
+    file: Optional[str] = typer.Option(None, "--file", "-f", help="Path to Excel file containing DOI records"),
+    skip: Optional[int] = typer.Option(None, "--skip", "-s", help="Number of records to skip before processing"),
+    limit: Optional[int] = typer.Option(None, "--limit", "-l", help="Maximum number of records to process"),
+    provider: Optional[str] = typer.Option(None, "--provider", "-p", help="LLM provider to use (ollama/openai)"),
+    model: Optional[str] = typer.Option(None, "--model", "-m", help="Specific OpenAI model (gpt-5-nano/gpt-5-mini/gpt-5)"),
+    strategy: Optional[str] = typer.Option(None, "--strategy", help="Model selection strategy (cost-optimized/balanced/accuracy-first)"),
+    max_cost: Optional[float] = typer.Option(None, "--max-cost", help="Maximum cost per extraction ($)"),
+    force: Optional[bool] = typer.Option(None, "--force", help="Force reprocess existing DOIs (ignore cache)"),
+    batch_size: Optional[int] = typer.Option(None, "--batch-size", "-b", help="Number of records to process concurrently")
+):
+    """
+    [DEPRECATED] Use 'extract-doi' instead. This command is kept for backward compatibility.
+
+    Run DOI extraction pipeline on medical literature dataset.
+    """
+    console.print("[yellow]Note: 'extract' command is deprecated. Please use 'extract-doi' instead.[/yellow]\n")
+    # Call the new command with same parameters
+    extract_doi(file=file, skip=skip, limit=limit, provider=provider, model=model,
+                strategy=strategy, max_cost=max_cost, force=force, batch_size=batch_size)
+
+
+@app.command(name="extract-country")
+def extract_country(
+    file: Optional[str] = typer.Option(None, "--file", "-f", help="Path to country.xlsx file"),
+    output: Optional[str] = typer.Option(None, "--output", "-o", help="Output CSV file path"),
+    provider: Optional[str] = typer.Option(None, "--provider", "-p", help="LLM provider to use (ollama/openai)"),
+    model: Optional[str] = typer.Option(None, "--model", "-m", help="Specific OpenAI model (gpt-5-nano/gpt-5-mini/gpt-5)"),
+    batch_size: Optional[int] = typer.Option(None, "--batch-size", "-b", help="Number of records to process concurrently")
+):
+    """
+    Extract first author country information from affiliation text.
+
+    Processes author affiliation data from Excel file to extract:
+    1. First Author Name
+    2. First Author Full Location/Affiliation
+    3. First Author Country
+
+    Reads from columns:
+    - Column 2 (preferred): First author affiliation
+    - Column 1 (fallback): Full author list with affiliations
+
+    Output: CSV file with original text, extracted fields, confidence scores, and metadata.
+
+    Examples:
+        python cli.py extract-country                              # Interactive mode
+        python cli.py extract-country --file country.xlsx          # Process country.xlsx
+        python cli.py extract-country -f country.xlsx -o results.csv  # Custom output
+    """
+    from .extractors.country_extractor import CountryExtractionEngine
+
+    console.print("\n[bold]Author Country Extraction Pipeline[/bold]\n")
+
+    # Interactive prompts for missing parameters
+    if file is None:
+        file = Prompt.ask("[cyan]Excel file to process[/cyan]", default="country.xlsx")
+
+    if output is None:
+        output = Prompt.ask("[cyan]Output CSV file path[/cyan]", default="output/country_extracted.csv")
+
+    if provider is None:
+        provider = Prompt.ask(
+            "[cyan]LLM provider[/cyan]",
+            choices=["ollama", "openai"],
+            default="ollama"
+        )
+
+    # Handle OpenAI model selection
+    if provider == "openai" and model is None:
+        model = Prompt.ask(
+            "[cyan]OpenAI model[/cyan]",
+            choices=["gpt-5-nano", "gpt-5-mini", "gpt-5"],
+            default="gpt-5-nano"
+        )
+
+    if batch_size is None:
+        batch_size = IntPrompt.ask("[cyan]Batch size for concurrent processing[/cyan]", default=5)
+
+    # Load configuration
+    config = load_config()
+
+    # Override config with command-line options
+    if provider:
+        config.setdefault('llm', {})['default_provider'] = provider
+
+    # Create session
+    session_id = datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + uuid.uuid4().hex[:6]
+    audit_logger = AuditLogger(session_id, output_dir="output", config=config.get('audit', {}))
+
+    # Initialize country extraction engine
+    engine = CountryExtractionEngine(config, audit_logger, session_id)
+
+    console.print(f"\n[bold]Loading data from {file}...[/bold]")
+
+    try:
+        # Load records from Excel
+        records = engine.load_country_xlsx(Path(file))
+        console.print(f"[green]Loaded {len(records)} records[/green]\n")
+
+        # Process records
+        console.print("[bold]Processing records...[/bold]")
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TaskProgressColumn(),
+            console=console
+        ) as progress:
+            task = progress.add_task(f"Extracting country data...", total=len(records))
+
+            async def run_extraction():
+                results = await engine.process_batch(
+                    records,
+                    batch_size=batch_size,
+                    force_provider=provider,
+                    force_model=model
+                )
+                return results
+
+            # Run async extraction
+            results = asyncio.run(run_extraction())
+
+            # Collect successful extractions
+            successful = []
+            failed = []
+            for result, error in results:
+                progress.advance(task)
+                if result:
+                    successful.append(result)
+                else:
+                    failed.append(error)
+
+        # Save results to CSV
+        output_path = Path(output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        engine.save_results_to_csv(successful, output_path)
+
+        # Display summary
+        console.print(f"\n[bold green]Extraction Complete![/bold green]")
+        console.print(f"\n[bold]Summary:[/bold]")
+        console.print(f"  Total records: {len(records)}")
+        console.print(f"  Successful: {len(successful)}")
+        console.print(f"  Failed: {len(failed)}")
+
+        if successful:
+            avg_conf = sum(r.confidence_scores.overall for r in successful) / len(successful)
+            console.print(f"  Average confidence: {avg_conf:.2%}")
+
+        console.print(f"\n[bold]Output file:[/bold] {output_path}")
+        console.print(f"[bold]Session logs:[/bold] output/logs/session_{session_id}.log")
+
+    except FileNotFoundError:
+        console.print(f"[red]Error: File '{file}' not found[/red]")
+        raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        import traceback
+        traceback.print_exc()
+        raise typer.Exit(1)
+    finally:
+        audit_logger.finalize_session()
 
 
 @app.command()

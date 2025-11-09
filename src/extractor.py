@@ -11,12 +11,12 @@ from datetime import datetime
 from typing import Dict, Any, Optional, List, Tuple
 import traceback
 
-from .models import (
+from .core.models import (
     InputRecord, ExtractedData, TransparencyMetadata
 )
 from .providers import LLMProvider, OllamaProvider, OpenAIProvider
-from .audit import AuditLogger
-from .quality import QualityValidator
+from .core.audit import AuditLogger
+from .core.quality import QualityValidator
 
 
 class ExtractionEngine:
@@ -103,7 +103,10 @@ class ExtractionEngine:
     
     def _load_prompts(self) -> Dict[str, str]:
         """Load prompt templates."""
-        prompts_file = Path('config/prompts.yaml')
+        # Try new path first, fallback to old path for backward compatibility
+        prompts_file = Path('config/prompts/doi_prompts.yaml')
+        if not prompts_file.exists():
+            prompts_file = Path('config/prompts.yaml')
         if prompts_file.exists():
             with open(prompts_file, 'r') as f:
                 return yaml.safe_load(f)
@@ -118,7 +121,10 @@ Extract THREE specific classification fields from medical abstracts.""",
 
     def _load_field_options(self) -> Dict[str, List[str]]:
         """Load allowed options for each extracted field from YAML to avoid hard-coding."""
-        fields_file = Path('config/fields.yaml')
+        # Try new path first, fallback to old path for backward compatibility
+        fields_file = Path('config/fields/doi_fields.yaml')
+        if not fields_file.exists():
+            fields_file = Path('config/fields.yaml')
         if fields_file.exists():
             with open(fields_file, 'r') as f:
                 data = yaml.safe_load(f) or {}

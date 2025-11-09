@@ -162,3 +162,50 @@ class AuditLogEntry(BaseModel):
     llm_prompt: Optional[str] = None
     llm_response: Optional[str] = None
     processing_time_ms: Optional[float] = None
+
+
+# ============================================================================
+# COUNTRY EXTRACTION MODELS
+# ============================================================================
+
+
+class CountryInputRecord(BaseModel):
+    """Input record from country.xlsx spreadsheet."""
+    row_number: int = Field(..., description="Row number in spreadsheet")
+    full_author_text: Optional[str] = Field(None, description="Full author list with affiliations (column 1)")
+    first_author_affiliation: Optional[str] = Field(None, description="First author affiliation text (column 2, preferred)")
+
+    def get_affiliation_text(self) -> str:
+        """Get the affiliation text to use (column 2 if available, else column 1)."""
+        if self.first_author_affiliation and self.first_author_affiliation.strip():
+            return self.first_author_affiliation
+        return self.full_author_text or ""
+
+
+class CountryConfidenceScores(BaseModel):
+    """Confidence scores for country extraction fields."""
+    first_author: float = Field(default=0.0, ge=0.0, le=1.0)
+    full_location: float = Field(default=0.0, ge=0.0, le=1.0)
+    country: float = Field(default=0.0, ge=0.0, le=1.0)
+    overall: float = Field(default=0.0, ge=0.0, le=1.0)
+
+
+class CountryExtractedData(BaseModel):
+    """Extracted country data from a single affiliation record."""
+    # Original data
+    row_number: int
+    original_text: str
+
+    # EXTRACTED FIELDS
+    first_author: Optional[str] = None  # Full name of first author
+    full_location: Optional[str] = None  # Complete affiliation/location text
+    country: Optional[str] = None  # Normalized country name
+
+    # Quality metrics
+    confidence_scores: CountryConfidenceScores = Field(default_factory=CountryConfidenceScores)
+
+    # Transparency metadata
+    transparency_metadata: TransparencyMetadata
+
+    # Processing metadata
+    processing_metadata: Dict[str, Any] = Field(default_factory=dict)

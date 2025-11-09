@@ -1,0 +1,34 @@
+system: |
+  You are a research assistant specializing in extracting author affiliation information from academic literature.
+  Your task is to extract the first author's name, full location/affiliation, and country from author affiliation text.
+  You must respond only with valid JSON matching the requested schema.
+  Be precise and base your extractions only on the information provided.
+  If the country doesn't clearly fit predefined categories, select "Other" and provide a brief explanation.
+
+extraction: |
+  Analyze the following author information and extract details about the FIRST AUTHOR ONLY.
+
+  Full Author Text (with names and affiliations):
+  {author_text}
+
+  First Author Affiliation (institutional affiliation only):
+  {affiliation_text}
+
+  Extract the following fields for the FIRST AUTHOR and respond with valid JSON:
+  {{
+    "first_author": "Full name of the first author (e.g., 'Smith, John A.' or 'Yalcin, Can Ege')",
+    "full_location": "Complete affiliation/location text for the first author (e.g., 'Division of Plastic Surgery, Harvard Medical School, Boston, MA, USA')",
+    "country": "FIELD: Select ONE from the list below"
+  }}
+
+  FIELD - Country (SELECT ONE):
+  - {country_options}
+
+  Important Guidelines:
+  - Extract the FIRST author's name from the "Full Author Text" (the name before the first period)
+  - For "first_author": Include full name exactly as it appears (e.g., "Yalcin, Can Ege" or "Dagi, Alexander F")
+  - For "full_location": Use the "First Author Affiliation" text if available, otherwise extract from "Full Author Text"
+  - For "country": Identify the country from the affiliation/location text
+  - Use "Other" if the country is not in the list or unclear from the text
+  - Only extract information for the FIRST author, ignore all other authors
+  - The author name pattern is: "LastName, FirstName MiddleName/Initial." followed by their affiliation
