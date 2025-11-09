@@ -1230,6 +1230,103 @@ def validate(
         console.print(f"  {field}: {coverage}/{total} ({coverage/total*100:.2f}%)")
 
 
+@app.command(name="generate-extractor")
+def generate_extractor(
+    modify: Optional[str] = typer.Option(None, "--modify", help="Modify existing extractor (e.g., 'doi', 'country')"),
+    fork: Optional[str] = typer.Option(None, "--fork", help="Fork existing extractor as template"),
+    name: Optional[str] = typer.Option(None, "--name", help="Name for new extractor"),
+):
+    """
+    AI-powered extraction pipeline generator.
+
+    Interactive conversational interface to design and generate extraction configurations.
+    The AI agent will:
+    1. Ask clarifying questions about what you want to extract
+    2. Help you define fields and their types
+    3. Generate field definitions (YAML)
+    4. Generate extraction prompts (YAML)
+    5. Provide code templates for implementation
+
+    Modes:
+    - Create new: Run without options for guided creation
+    - Modify: --modify <name> to update existing extractor
+    - Fork: --fork <name> to clone and customize existing extractor
+
+    Examples:
+        python cli.py generate-extractor
+        python cli.py generate-extractor --modify doi
+        python cli.py generate-extractor --fork country --name institution
+    """
+    from .agents.extractor_generator import generator_agent
+    from .agents.config_generator import ConfigGenerator
+    from agents import Runner
+    import os
+
+    console.print("\n[bold cyan]AI Extraction Pipeline Generator[/bold cyan]")
+    console.print("[dim]Powered by OpenAI Agents[/dim]\n")
+
+    # Check for OpenAI API key
+    if not os.getenv("OPENAI_API_KEY"):
+        console.print("[red]Error: OPENAI_API_KEY environment variable not set[/red]")
+        console.print("Please set your OpenAI API key to use the AI generator:")
+        console.print("  export OPENAI_API_KEY='your-api-key-here'")
+        raise typer.Exit(1)
+
+    # Build initial message based on mode
+    if modify:
+        initial_message = f"I want to modify the '{modify}' extractor"
+        mode = "modify"
+    elif fork:
+        if name:
+            initial_message = f"I want to create a new extractor called '{name}' based on the '{fork}' extractor"
+        else:
+            initial_message = f"I want to fork the '{fork}' extractor"
+        mode = "fork"
+    else:
+        if name:
+            initial_message = f"I want to create a new extraction pipeline called '{name}'"
+        else:
+            initial_message = "I want to create a new extraction pipeline"
+        mode = "new"
+
+    console.print("[bold]Starting AI conversation...[/bold]\n")
+    console.print(f"[dim]Mode: {mode}[/dim]")
+    console.print(f"[dim]Initial message: {initial_message}[/dim]\n")
+
+    try:
+        # Run the agent conversation
+        async def run_conversation():
+            result = await Runner.run(generator_agent, input=initial_message)
+            return result
+
+        result = asyncio.run(run_conversation())
+
+        console.print(f"\n[green]✓ Agent session completed[/green]")
+        console.print(f"\n{result.final_output}")
+
+        # Check if files were generated
+        console.print("\n[bold]Generated Files:[/bold]")
+
+        # Look for any file save actions in the result
+        # NOTE: The actual file saving happens through the save_config_file tool
+        # which returns file save intentions that need user approval
+
+        console.print("\n[bold cyan]Next Steps:[/bold cyan]")
+        console.print("1. Review the generated configuration files")
+        console.print("2. Create the extractor class (template provided above)")
+        console.print("3. Add the CLI command (code snippet provided above)")
+        console.print("4. Test your new extraction pipeline")
+
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Agent conversation cancelled by user[/yellow]")
+        raise typer.Exit(0)
+    except Exception as e:
+        console.print(f"\n[red]Error during agent conversation: {e}[/red]")
+        import traceback
+        console.print(f"[dim]{traceback.format_exc()}[/dim]")
+        raise typer.Exit(1)
+
+
 def main():
     """Main entry point."""
     app()
