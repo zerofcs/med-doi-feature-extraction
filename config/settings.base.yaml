@@ -1,0 +1,80 @@
+title: "Base Configuration"
+llm:
+  default_provider: "openai"  # Options: ollama, openai
+  default_openai_model: "gpt-5-nano"  # Default OpenAI model for cost optimization
+  model_selection_strategy: "cost-optimized"  # Options: cost-optimized, balanced, accuracy-first, manual
+  
+  ollama:
+    base_url: "http://localhost:11434"
+    model: "deepseek-r1:8b"  # Use smaller model for faster response
+    timeout: 120
+    temperature: 0.1
+  
+  openai:
+    # Legacy single model config (maintained for backwards compatibility)
+    model: "gpt-4o-mini"
+    max_tokens: 2000
+    temperature: 0.1
+    timeout: 600  # 10 minute timeout for API calls
+    
+    # New multi-model configurations
+    models:
+      "gpt-5-nano":
+        max_tokens: 2000
+        temperature: 1.0
+        pricing:
+          input_per_1m: 0.05
+          output_per_1m: 0.40
+        confidence_multiplier: 0.85
+        complexity_threshold: 0.3
+        
+      "gpt-5-mini":
+        max_tokens: 2000
+        temperature: 1.0
+        pricing:
+          input_per_1m: 0.25
+          output_per_1m: 2.00
+        confidence_multiplier: 0.95
+        complexity_threshold: 0.7
+        
+      "gpt-5":
+        max_tokens: 2000
+        temperature: 1.0
+        pricing:
+          input_per_1m: 1.25
+          output_per_1m: 10.00
+        confidence_multiplier: 1.0
+        complexity_threshold: 1.0
+    
+    # Cost management
+    cost_limits:
+      max_cost_per_extraction: 0.10
+      max_daily_cost: 50.00
+      warn_threshold: 0.05
+
+processing:
+  test_mode: false
+  test_limit: 1
+  batch_size: 1
+  delay_between_requests: 1.0
+  force_reprocess: false
+  strict_validation: false
+  
+  # Model selection and benchmarking
+  benchmark_sample_size: 50
+  auto_fallback: true
+  fallback_confidence_threshold: 0.6
+
+quality:
+  min_confidence_threshold: 0.5
+  review_threshold: 0.7
+
+output:
+  directory: "output/extracted"
+  format: "yaml"
+
+logging:
+  level: "INFO"
+  console: false
+  file: true
+

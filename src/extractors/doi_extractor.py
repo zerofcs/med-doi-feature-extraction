@@ -13,6 +13,7 @@ from datetime import datetime
 from .base import BaseExtractor
 from ..core.models import InputRecord, ExtractedData, ConfidenceScores, TransparencyMetadata
 from ..providers import OllamaProvider, OpenAIProvider
+from ..utils import sanitize_filename
 
 
 class DOIExtractor(BaseExtractor):
@@ -138,7 +139,8 @@ Extract THREE specific classification fields from medical abstracts.""",
         extracted: Dict[str, Any],
         confidence_scores: Any,
         transparency_metadata: Any,
-        processing_time: float
+        processing_time: float,
+        llm_confidence: float = 1.0
     ) -> ExtractedData:
         """Create ExtractedData model from parsed response."""
         # Log warnings for missing data
@@ -153,12 +155,11 @@ Extract THREE specific classification fields from medical abstracts.""",
         if not record.publication_year:
             warning_logs.append("Missing publication year")
 
-        # Calculate confidence scores
-        # We need to get the LLM confidence from somewhere - for now use 1.0
+        # Calculate confidence scores using actual LLM confidence from provider
         confidence_scores = self.quality_validator.calculate_confidence_scores(
             extracted_data=extracted,
             input_record=record,
-            llm_confidence=1.0,
+            llm_confidence=llm_confidence,
             warning_logs=warning_logs
         )
 
@@ -188,12 +189,12 @@ Extract THREE specific classification fields from medical abstracts.""",
             transparency_metadata.other_specifications['study_design'] = extracted['study_design_other']
 
         # Normalize choices using data-driven options
-        study_design = self.normalize_choice(extracted.get('study_design'), self.field_options['study_design'])
-        subspecialty_focus = self.normalize_choice(extracted.get('subspecialty_focus'), self.field_options['subspecialty_focus'])
+        study_design = self.normalize_choice(extracted.get('study_design'), self.field_options['study_design'], record.doi)
+        subspecialty_focus = self.normalize_choice(extracted.get('subspecialty_focus'), self.field_options['subspecialty_focus'], record.doi)
         pt_value = extracted.get('priority_topic')
         if not pt_value and isinstance(extracted.get('priority_topics'), list) and extracted.get('priority_topics'):
             pt_value = extracted['priority_topics'][0]
-        priority_topic = self.normalize_choice(pt_value, self.field_options['priority_topic'])
+        priority_topic = self.normalize_choice(pt_value, self.field_options['priority_topic'], record.doi)
 
         # Create extracted data object
         extracted_data = ExtractedData(
@@ -224,7 +225,7 @@ Extract THREE specific classification fields from medical abstracts.""",
         extracted_data.transparency_metadata.validation_flags = validation_flags
         extracted_data.transparency_metadata.human_review_required = needs_review
 
-        if not is_valid and self.config.get('strict_validation', False):
+        if not is_valid and self.config.get('processing', {}).get('strict_validation', False):
             raise ValueError(f"Validation failed: {', '.join(validation_flags)}")
 
         return extracted_data
@@ -253,4 +254,5 @@ Extract THREE specific classification fields from medical abstracts.""",
     def get_output_path(self, record: InputRecord) -> Path:
         """Get output file path for a record."""
         doi = record.doi if record.doi else "unknown"
-        return self.output_dir / f"{doi.replace('/', '_')}.yaml"
+        safe_name = sanitize_filename(doi.replace('/', '_'))
+        return self.output_dir / f"{safe_name}.yaml"

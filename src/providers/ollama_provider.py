@@ -93,20 +93,10 @@ class OllamaProvider(LLMProvider):
             return False, f"Cannot connect to Ollama: {str(e)}"
     
     def parse_structured_output(self, content: str) -> Dict[str, Any]:
-        """Parse structured output from model response."""
-        try:
-            # Try to parse as JSON
-            if '```json' in content:
-                json_str = content.split('```json')[1].split('```')[0].strip()
-                return json.loads(json_str)
-            elif '{' in content and '}' in content:
-                # Find JSON object in response
-                start = content.index('{')
-                end = content.rindex('}') + 1
-                json_str = content[start:end]
-                return json.loads(json_str)
-            else:
-                # Return as plain text if not JSON
-                return {'response': content}
-        except:
-            return {'response': content}
+        """
+        Parse structured output from model response.
+
+        Ollama does not support forced JSON format, so we use extraction strategies only.
+        """
+        from ..utils import parse_json_from_text
+        return parse_json_from_text(content, try_direct_parse=False)

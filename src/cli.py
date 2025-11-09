@@ -5,6 +5,7 @@ Main CLI application for medical literature DOI scraping and analysis.
 
 import asyncio
 import sys
+import os
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, List, Tuple
@@ -23,7 +24,7 @@ from rich.prompt import Confirm, IntPrompt, Prompt
 import uuid
 
 from .core.models import InputRecord, BenchmarkResult
-from .extractor import ExtractionEngine
+from .extractors.doi_extractor import DOIExtractor
 from .core.audit import AuditLogger
 from .core.quality import QualityValidator
 
@@ -38,15 +39,209 @@ app = typer.Typer(
 console = Console()
 
 
+def _deep_update(base: dict, override: dict) -> dict:
+    """Recursively update dict 'base' with 'override' keys, returning base."""
+    for k, v in (override or {}).items():
+        if isinstance(v, dict) and isinstance(base.get(k), dict):
+            _deep_update(base[k], v)
+        else:
+            base[k] = v
+    return base
+
+
+def _get_config_title(path: Path) -> str:
+    try:
+        with open(path, 'r') as f:
+            data = yaml.safe_load(f) or {}
+        title = data.get('title')
+        if isinstance(title, str) and title.strip():
+            return title.strip()
+    except Exception:
+        pass
+    # Fallback to filename-based title
+    name = path.stem.replace('settings.', '').replace('_', ' ').title()
+    return name
+
+
 def load_config() -> dict:
     """Load configuration from file."""
-    config_path = Path("config/settings.yaml")
-    if not config_path.exists():
-        console.print("[red]Error: config/settings.yaml not found[/red]")
+    # Allow override via env var so the interactive menu can switch configs
+    override_path = os.getenv("MED_CONFIG_PATH")
+    overlay_path = Path(override_path) if override_path else None
+
+    # Determine overlay default
+    if overlay_path is None:
+        for cand in [Path("config/settings.doi.yaml"), Path("config/settings.country.yaml")]:
+            if cand.exists():
+                overlay_path = cand
+                break
+
+    base_path = Path("config/settings.base.yaml")
+    if not overlay_path and not base_path.exists():
+        console.print("[red]Error: no config file found. Expected one of:[/red]")
+        console.print("  - config/settings.base.yaml")
+        console.print("  - config/settings.doi.yaml")
+        console.print("  - config/settings.country.yaml")
+        console.print("Set MED_CONFIG_PATH to a valid config path or run the CLI interactively to choose one.")
         raise typer.Exit(1)
-    
-    with open(config_path, 'r') as f:
-        return yaml.safe_load(f)
+
+    # Load base, then overlay
+    config = {}
+    if base_path.exists():
+        with open(base_path, 'r') as f:
+            config = yaml.safe_load(f) or {}
+        # Remove title from loaded config to avoid leaking into runtime dict
+        config.pop('title', None)
+
+    if overlay_path and overlay_path.exists():
+        with open(overlay_path, 'r') as f:
+            overlay = yaml.safe_load(f) or {}
+        overlay.pop('title', None)
+        config = _deep_update(config, overlay)
+
+    return config
+
+
+def _choose_from_list(prompt_text: str, options: list, default: Optional[str] = None) -> str:
+    """Interactive numeric selector; falls back to typed value if matched.
+
+    Shows a numbered list and accepts either the number or the exact option value.
+    """
+    if not options:
+        raise ValueError("No options to choose from")
+    # Determine default index
+    default_index = 0
+    if default and default in options:
+        default_index = options.index(default)
+
+    # Display menu
+    console.print(f"\n[bold]{prompt_text}[/bold]")
+    for i, opt in enumerate(options, start=1):
+        if i - 1 == default_index:
+            console.print(f"  {i}) {opt} [dim](default)[/dim]")
+        else:
+            console.print(f"  {i}) {opt}")
+
+    valid_choices = [str(i) for i in range(1, len(options) + 1)] + options
+    choice = Prompt.ask(
+        "Select",
+        choices=valid_choices,
+        default=str(default_index + 1),
+    )
+    if choice.isdigit():
+        idx = int(choice) - 1
+        return options[idx]
+    return choice
+
+
+def _openai_model_options(config: dict) -> List[str]:
+    models = list((config.get('llm', {}).get('openai', {}).get('models', {}) or {}).keys())
+    if models:
+        return models
+    # Sensible fallback
+    return ["gpt-5-nano", "gpt-5-mini", "gpt-5"]
+
+
+def _default_openai_model(config: dict) -> str:
+    return config.get('llm', {}).get('default_openai_model', 'gpt-5-nano')
+
+
+def _list_available_configs() -> list:
+    """List available config settings files to choose from."""
+    cfg_dir = Path("config")
+    if not cfg_dir.exists():
+        return []
+    # Only list pipeline-specific settings files; base is not selectable
+    configs = sorted([p for p in cfg_dir.glob("settings.*.y*ml") if p.name != "settings.base.yaml"]) 
+    return configs
+
+
+def _select_config() -> bool:
+    """Config selection submenu. Returns True if a config was selected and set."""
+    while True:
+        configs = _list_available_configs()
+        if not configs:
+            console.print("[yellow]No config files found in ./config[/yellow]")
+            # Offer to enter custom
+            no_cfg_choice = Prompt.ask("Enter a custom path (p) or back (b)", choices=["p", "b"], default="b")
+            if no_cfg_choice == "b":
+                return False
+            custom = Prompt.ask("Enter path to YAML config", default="config/settings.yaml")
+            path = Path(custom)
+            if path.exists():
+                os.environ["MED_CONFIG_PATH"] = str(path)
+                console.print(f"\n[green]✓ Using config:[/green] {path}")
+                return True
+            console.print(f"[red]Config file not found: {path}[/red]")
+            continue
+
+        console.print("\n[bold]Available configs:[/bold]")
+        for i, c in enumerate(configs, start=1):
+            title = _get_config_title(c)
+            console.print(f"  {i}) {title} [dim]({c})[/dim]")
+        console.print("  p) Enter a custom path")
+        console.print("  b) Back")
+
+        valid_numeric = [str(i) for i in range(1, len(configs) + 1)]
+        selection = Prompt.ask(
+            "Pick a config",
+            choices=valid_numeric + ["p", "b"],
+            default="1",
+        )
+
+        if selection == "b":
+            return False
+        if selection == "p":
+            custom = Prompt.ask("Enter path to YAML config", default="config/settings.yaml")
+            path = Path(custom)
+        else:
+            path = configs[int(selection) - 1]
+
+        if not path.exists():
+            console.print(f"[red]Config file not found: {path}[/red]")
+            continue
+
+        os.environ["MED_CONFIG_PATH"] = str(path)
+        console.print(f"\n[green]✓ Using config:[/green] {path}")
+        return True
+
+
+@app.callback(invoke_without_command=True)
+def entry(ctx: typer.Context):
+    """Interactive entrypoint when no subcommand is provided."""
+    if ctx.invoked_subcommand:
+        return
+
+    while True:
+        console.print("\n[bold cyan]LIM - Data Feature Extraction[/bold cyan]")
+        console.print("[bold]Main menu:[/bold]")
+        console.print("  c) Choose config")
+        console.print("  g) Generate new config (agent/wizard)")
+        console.print("  h) Help")
+        console.print("  q) Quit")
+
+        selection = Prompt.ask(
+            "Select option",
+            choices=["c", "g", "h", "q"],
+            default="c",
+        )
+
+        if selection == "q":
+            raise typer.Exit(0)
+        if selection == "h":
+            typer.echo(typer.main.get_command(app).get_help(ctx))
+            continue
+        if selection == "g":
+            try:
+                generate_extractor(fallback_wizard=True)  # type: ignore[name-defined]
+            except Exception as e:
+                console.print(f"[red]Error starting generator: {e}[/red]")
+            continue
+        if selection == "c":
+            if _select_config():
+                _interactive_actions()
+            # After actions loop or back, show main menu again
+            continue
 
 
 def load_excel_data(file_path: str, skip: int = 0, limit: Optional[int] = None) -> Tuple[List[InputRecord], int]:
@@ -223,6 +418,13 @@ def test(
     console.print(f"[green]DOI:[/green] {record.doi}")
     console.print(f"[green]Title:[/green] {record.title[:100] if record.title else 'N/A'}...")
     
+    # Interactive provider/model selection if not provided
+    if provider is None:
+        provider = _choose_from_list("Provider", ["ollama", "openai"], default=config.get('llm', {}).get('default_provider', 'openai'))
+    if provider == 'openai' and model is None and strategy is None:
+        # Let user choose model directly; strategy remains optional
+        model = _choose_from_list("OpenAI model", _openai_model_options(config), default=_default_openai_model(config))
+
     # Apply model configuration
     if provider:
         config['llm']['default_provider'] = provider
@@ -234,7 +436,7 @@ def test(
     # Initialize components
     session_id = f"test_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     audit_logger = AuditLogger(session_id, config=config)
-    engine = ExtractionEngine(config, audit_logger, session_id)
+    engine = DOIExtractor(config, audit_logger, session_id)
     
     # Run extraction
     async def run_test():
@@ -348,39 +550,36 @@ def extract_doi(
             file = "data-source.xlsx"
     
     if provider is None:
-        provider = Prompt.ask(
-            "[cyan]LLM provider[/cyan]",
-            choices=["ollama", "openai"],
-            default="ollama"
+        cfg_for_defaults = load_config()
+        provider = _choose_from_list(
+            "LLM provider",
+            ["ollama", "openai"],
+            default=cfg_for_defaults.get('llm', {}).get('default_provider', 'openai')
         )
     
     # Handle OpenAI model selection
     if provider == "openai":
         if model is None and strategy is None:
-            model_choice = Prompt.ask(
-                "[cyan]OpenAI model selection[/cyan]",
-                choices=["strategy", "specific-model"],
-                default="strategy"
-            )
-            
+            model_choice = _choose_from_list("OpenAI model selection", ["strategy", "specific-model"], default="strategy")
             if model_choice == "strategy":
-                strategy = Prompt.ask(
-                    "[cyan]Model selection strategy[/cyan]",
-                    choices=["cost-optimized", "balanced", "accuracy-first"],
-                    default="cost-optimized"
+                strategy = _choose_from_list(
+                    "Model selection strategy",
+                    ["cost-optimized", "balanced", "accuracy-first", "manual"],
+                    default=cfg_for_defaults.get('llm', {}).get('model_selection_strategy', 'cost-optimized')
                 )
             else:
-                model = Prompt.ask(
-                    "[cyan]Specific OpenAI model[/cyan]",
-                    choices=["gpt-5-nano", "gpt-5-mini", "gpt-5"],
-                    default="gpt-5-nano"
+                model = _choose_from_list(
+                    "OpenAI model",
+                    _openai_model_options(cfg_for_defaults),
+                    default=_default_openai_model(cfg_for_defaults)
                 )
     
     if force is None:
         force = Confirm.ask("[cyan]Force reprocess existing DOIs?[/cyan]", default=False)
     
     if batch_size is None:
-        batch_size = IntPrompt.ask("[cyan]Batch size for concurrent processing[/cyan]", default=1)
+        cfg_processing_default = cfg_for_defaults.get('processing', {}).get('batch_size', 1)
+        batch_size = IntPrompt.ask("[cyan]Batch size for concurrent processing[/cyan]", default=int(cfg_processing_default))
     
     console.print("\n[bold]Medical Literature Extraction Pipeline[/bold]\n")
     
@@ -425,7 +624,7 @@ def extract_doi(
     # Initialize components
     session_id = f"extract_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
     audit_logger = AuditLogger(session_id, config=config)
-    engine = ExtractionEngine(config, audit_logger, session_id)
+    engine = DOIExtractor(config, audit_logger, session_id)
     
     console.print(f"\n[bold]Session ID:[/bold] {session_id}")
     console.print(f"[bold]Output directory:[/bold] {config['output']['directory']}")
@@ -466,7 +665,7 @@ def extract_doi(
             
             for i in range(0, len(records), batch_size):
                 batch = records[i:i + batch_size]
-                batch_results = await engine.process_batch(batch, batch_size=1, force_provider=provider, force_model=model)
+                batch_results = await engine.process_batch(batch, batch_size=batch_size, force_provider=provider, force_model=model)
                 results.extend(batch_results)
                 
                 # Process batch results and update counters
@@ -474,9 +673,9 @@ def extract_doi(
                     processed_count += 1
                     
                     # Check if this record has reduced confidence due to missing abstract
-                    if result and result.confidence_scores.overall <= 0.6:
-                        # Check if it's due to missing abstract
-                        if "Missing abstract" in str(result.transparency_metadata.warning_logs):
+                    if result:
+                        # Reduced confidence due to known warnings (e.g., missing abstract)
+                        if any("Missing abstract" in w for w in result.transparency_metadata.warning_logs):
                             reduced_confidence_count += 1
                     
                     # Check if failed
@@ -553,7 +752,9 @@ def extract_country(
     output: Optional[str] = typer.Option(None, "--output", "-o", help="Output CSV file path"),
     provider: Optional[str] = typer.Option(None, "--provider", "-p", help="LLM provider to use (ollama/openai)"),
     model: Optional[str] = typer.Option(None, "--model", "-m", help="Specific OpenAI model (gpt-5-nano/gpt-5-mini/gpt-5)"),
-    batch_size: Optional[int] = typer.Option(None, "--batch-size", "-b", help="Number of records to process concurrently")
+    batch_size: Optional[int] = typer.Option(None, "--batch-size", "-b", help="Number of records to process concurrently"),
+    skip: Optional[int] = typer.Option(None, "--skip", "-s", help="Number of rows to skip before processing"),
+    limit: Optional[int] = typer.Option(None, "--limit", "-l", help="Maximum number of rows to process")
 ):
     """
     Extract first author country information from affiliation text.
@@ -578,6 +779,9 @@ def extract_country(
 
     console.print("\n[bold]Author Country Extraction Pipeline[/bold]\n")
 
+    # Load configuration first to use defaults in prompts
+    config = load_config()
+
     # Interactive prompts for missing parameters
     if file is None:
         file = Prompt.ask("[cyan]Excel file to process[/cyan]", default="country.xlsx")
@@ -586,25 +790,26 @@ def extract_country(
         output = Prompt.ask("[cyan]Output CSV file path[/cyan]", default="output/country_extracted.csv")
 
     if provider is None:
-        provider = Prompt.ask(
-            "[cyan]LLM provider[/cyan]",
-            choices=["ollama", "openai"],
-            default="ollama"
-        )
+        provider_default = config.get('llm', {}).get('default_provider', 'openai')
+        provider = _choose_from_list("LLM provider", ["ollama", "openai"], default=provider_default)
 
     # Handle OpenAI model selection
     if provider == "openai" and model is None:
-        model = Prompt.ask(
-            "[cyan]OpenAI model[/cyan]",
-            choices=["gpt-5-nano", "gpt-5-mini", "gpt-5"],
-            default="gpt-5-nano"
-        )
+        model_default = _default_openai_model(config)
+        model_options = _openai_model_options(config)
+        model = _choose_from_list("OpenAI model", model_options, default=model_default)
 
     if batch_size is None:
-        batch_size = IntPrompt.ask("[cyan]Batch size for concurrent processing[/cyan]", default=5)
+        batch_default = int(config.get('processing', {}).get('batch_size', 5))
+        batch_size = IntPrompt.ask("[cyan]Batch size for concurrent processing[/cyan]", default=batch_default)
 
-    # Load configuration
-    config = load_config()
+    # Optional limit/skip prompts
+    if skip is None:
+        skip = IntPrompt.ask("[cyan]Skip rows before processing[/cyan]", default=0)
+    if limit is None:
+        limit = IntPrompt.ask("[cyan]Limit rows to process (0 = all)[/cyan]", default=0)
+        if limit == 0:
+            limit = None
 
     # Override config with command-line options
     if provider:
@@ -612,7 +817,8 @@ def extract_country(
 
     # Create session
     session_id = datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + uuid.uuid4().hex[:6]
-    audit_logger = AuditLogger(session_id, output_dir="output", config=config.get('audit', {}))
+    # Pass full config so logging.console can be honored (avoids progress glitches)
+    audit_logger = AuditLogger(session_id, output_dir="output", config=config)
 
     # Initialize country extraction engine
     engine = CountryExtractionEngine(config, audit_logger, session_id)
@@ -622,7 +828,13 @@ def extract_country(
     try:
         # Load records from Excel
         records = engine.load_country_xlsx(Path(file))
-        console.print(f"[green]Loaded {len(records)} records[/green]\n")
+        total = len(records)
+        # Apply skip/limit
+        if skip:
+            records = records[skip:]
+        if limit:
+            records = records[:limit]
+        console.print(f"[green]Loaded {len(records)} records[/green] [dim](from {total})[/dim]\n")
 
         # Process records
         console.print("[bold]Processing records...[/bold]")
@@ -721,8 +933,8 @@ def benchmark(
     if sample_size is None:
         sample_size = config.get('processing', {}).get('benchmark_sample_size', 50)
     
-    # Determine models to test
-    available_models = ['gpt-5-nano', 'gpt-5-mini', 'gpt-5']
+    # Determine models to test from config
+    available_models = _openai_model_options(config)
     if models:
         test_models = [m.strip() for m in models.split(',')]
         test_models = [m for m in test_models if m in available_models]
@@ -761,7 +973,8 @@ def benchmark(
         # Initialize components
         session_id = f"benchmark_{model_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         audit_logger = AuditLogger(session_id, config=test_config)
-        engine = ExtractionEngine(test_config, audit_logger, session_id)
+        from .extractors.doi_extractor import DOIExtractor
+        engine = DOIExtractor(test_config, audit_logger, session_id)
         
         # Run extractions
         model_results = {
@@ -770,6 +983,7 @@ def benchmark(
             'total_cost': 0.0,
             'total_time': 0.0,
             'confidence_scores': [],
+            'processing_times': [],  # Track individual times for statistics
             'error_categories': {}
         }
         
@@ -794,7 +1008,13 @@ def benchmark(
                         if result:
                             model_results['successful'] += 1
                             model_results['confidence_scores'].append(result.confidence_scores.overall)
-                            
+
+                            # Extract processing time from transparency metadata
+                            if hasattr(result.transparency_metadata, 'processing_time_seconds'):
+                                time_seconds = result.transparency_metadata.processing_time_seconds
+                                model_results['total_time'] += time_seconds
+                                model_results['processing_times'].append(time_seconds)
+
                             # Extract cost from transparency metadata if available
                             if hasattr(result.transparency_metadata, 'processing_cost'):
                                 model_results['total_cost'] += result.transparency_metadata.processing_cost
@@ -819,7 +1039,17 @@ def benchmark(
         total_records = model_results['successful'] + model_results['failed']
         avg_confidence = sum(model_results['confidence_scores']) / len(model_results['confidence_scores']) if model_results['confidence_scores'] else 0.0
         avg_cost = model_results['total_cost'] / total_records if total_records > 0 else 0.0
-        
+
+        # Calculate timing statistics
+        processing_times = model_results['processing_times']
+        if processing_times:
+            min_time = min(processing_times)
+            max_time = max(processing_times)
+            sorted_times = sorted(processing_times)
+            median_time = sorted_times[len(sorted_times) // 2]
+        else:
+            min_time = max_time = median_time = 0.0
+
         # Store results
         results[model_name] = BenchmarkResult(
             model_name=model_name,
@@ -828,6 +1058,9 @@ def benchmark(
             failed_extractions=model_results['failed'],
             average_confidence=avg_confidence,
             average_processing_time=model_results['total_time'] / total_records if total_records > 0 else 0.0,
+            min_processing_time=min_time,
+            max_processing_time=max_time,
+            median_processing_time=median_time,
             total_cost=model_results['total_cost'],
             average_cost_per_extraction=avg_cost,
             error_categories=model_results['error_categories']
@@ -845,17 +1078,19 @@ def benchmark(
     comparison_table.add_column("Model", style="cyan")
     comparison_table.add_column("Success Rate", justify="right")
     comparison_table.add_column("Avg Confidence", justify="right")
+    comparison_table.add_column("Avg Time (s)", justify="right")
     comparison_table.add_column("Total Cost", justify="right")
     comparison_table.add_column("Cost/Record", justify="right")
     comparison_table.add_column("Failures", justify="right")
-    
+
     for model_name, result in results.items():
         success_rate = (result.successful_extractions / result.total_records) * 100 if result.total_records > 0 else 0
-        
+
         comparison_table.add_row(
             model_name,
             f"{success_rate:.1f}%",
             f"{result.average_confidence:.3f}",
+            f"{result.average_processing_time:.2f}",
             f"${result.total_cost:.4f}",
             f"${result.average_cost_per_extraction:.4f}",
             str(result.failed_extractions)
@@ -879,10 +1114,26 @@ def benchmark(
     sorted_by_confidence = sorted(results.items(), key=lambda x: x[1].average_confidence, reverse=True)
     highest_confidence = sorted_by_confidence[0]
     lowest_confidence = sorted_by_confidence[-1]
-    
+
     console.print(f"  Highest confidence: {highest_confidence[0]} ({highest_confidence[1].average_confidence:.3f})")
     console.print(f"  Lowest confidence: {lowest_confidence[0]} ({lowest_confidence[1].average_confidence:.3f})")
-    
+
+    # Performance analysis
+    console.print(f"\n[bold]Performance Analysis:[/bold]")
+    sorted_by_speed = sorted(results.items(), key=lambda x: x[1].average_processing_time)
+    fastest_model = sorted_by_speed[0]
+    slowest_model = sorted_by_speed[-1]
+
+    console.print(f"  Fastest: {fastest_model[0]} ({fastest_model[1].average_processing_time:.2f}s avg)")
+    console.print(f"  Slowest: {slowest_model[0]} ({slowest_model[1].average_processing_time:.2f}s avg)")
+
+    # Show timing breakdown for each model
+    for model_name, result in results.items():
+        if result.min_processing_time and result.max_processing_time and result.median_processing_time:
+            console.print(f"  {model_name}: min={result.min_processing_time:.2f}s, "
+                         f"median={result.median_processing_time:.2f}s, "
+                         f"max={result.max_processing_time:.2f}s")
+
     # Recommendations
     console.print(f"\n[bold]Recommendations:[/bold]")
     console.print("  For cost optimization: Use gpt-5-nano for simple extractions")
@@ -939,7 +1190,7 @@ def retry(
     
     # Filter by session if specified
     if session_id:
-        failures = [f for f in failures if session_id in str(f.doi)]
+        failures = [f for f in failures if getattr(f, 'processing_session_id', None) == session_id]
     
     console.print(f"[yellow]Found {len(failures)} failures to retry[/yellow]")
     
@@ -960,7 +1211,7 @@ def retry(
     # Initialize new session for retries
     retry_session_id = f"retry_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     audit_logger = AuditLogger(retry_session_id, config=config)
-    engine = ExtractionEngine(config, audit_logger, retry_session_id)
+    engine = DOIExtractor(config, audit_logger, retry_session_id)
     validator = QualityValidator(config.get('quality', {}))
     
     console.print(f"\n[bold]Retry Session ID:[/bold] {retry_session_id}\n")
@@ -1111,6 +1362,9 @@ def export(
                     'llm_provider': transparency_metadata.get('llm_provider_used'),
                     'llm_model_version': transparency_metadata.get('llm_model_version'),
                     'processing_time_seconds': transparency_metadata.get('processing_time_seconds'),
+                    'processing_cost': transparency_metadata.get('processing_cost'),
+                    'input_tokens': transparency_metadata.get('input_tokens'),
+                    'output_tokens': transparency_metadata.get('output_tokens'),
                     'retry_count': transparency_metadata.get('retry_count', 0),
                     
                     # Quality indicators
@@ -1182,8 +1436,7 @@ def validate(
         console.print("[red]No extracted files found[/red]")
         raise typer.Exit(1)
     
-    # Load extracted data
-    from .models import ExtractedData
+    # Load extracted data as raw dicts
     extracted_data = []
     
     for yaml_file in yaml_files:
@@ -1223,7 +1476,7 @@ def validate(
     
     # Field coverage
     console.print("\n[bold]Field Coverage:[/bold]")
-    fields = ['year', 'study_design', 'subspecialty_focus', 'priority_topics']
+    fields = ['year', 'study_design', 'subspecialty_focus', 'priority_topic']
     
     for field in fields:
         coverage = sum(1 for d in extracted_data if d.get(field))
@@ -1235,6 +1488,7 @@ def generate_extractor(
     modify: Optional[str] = typer.Option(None, "--modify", help="Modify existing extractor (e.g., 'doi', 'country')"),
     fork: Optional[str] = typer.Option(None, "--fork", help="Fork existing extractor as template"),
     name: Optional[str] = typer.Option(None, "--name", help="Name for new extractor"),
+    fallback_wizard: Optional[bool] = typer.Option(False, "--fallback-wizard", help="Use local interactive wizard instead of the AI agent")
 ):
     """
     AI-powered extraction pipeline generator.
@@ -1257,8 +1511,8 @@ def generate_extractor(
         python cli.py generate-extractor --modify doi
         python cli.py generate-extractor --fork country --name institution
     """
-    from .agents.extractor_generator import generator_agent
-    from .agents.config_generator import ConfigGenerator
+    from .pipeline_generators.extractor_generator import generator_agent
+    from .pipeline_generators.config_generator import ConfigGenerator
     from agents import Runner
     import os
 
@@ -1267,6 +1521,11 @@ def generate_extractor(
 
     # Check for OpenAI API key
     if not os.getenv("OPENAI_API_KEY"):
+        if fallback_wizard or Confirm.ask(
+            "OPENAI_API_KEY not set. Use the local config wizard instead?", default=True
+        ):
+            _run_config_wizard()
+            return
         console.print("[red]Error: OPENAI_API_KEY environment variable not set[/red]")
         console.print("Please set your OpenAI API key to use the AI generator:")
         console.print("  export OPENAI_API_KEY='your-api-key-here'")
@@ -1289,6 +1548,10 @@ def generate_extractor(
             initial_message = "I want to create a new extraction pipeline"
         mode = "new"
 
+    if fallback_wizard:
+        _run_config_wizard()
+        return
+
     console.print("[bold]Starting AI conversation...[/bold]\n")
     console.print(f"[dim]Mode: {mode}[/dim]")
     console.print(f"[dim]Initial message: {initial_message}[/dim]\n")
@@ -1304,13 +1567,6 @@ def generate_extractor(
         console.print(f"\n[green]✓ Agent session completed[/green]")
         console.print(f"\n{result.final_output}")
 
-        # Check if files were generated
-        console.print("\n[bold]Generated Files:[/bold]")
-
-        # Look for any file save actions in the result
-        # NOTE: The actual file saving happens through the save_config_file tool
-        # which returns file save intentions that need user approval
-
         console.print("\n[bold cyan]Next Steps:[/bold cyan]")
         console.print("1. Review the generated configuration files")
         console.print("2. Create the extractor class (template provided above)")
@@ -1321,11 +1577,283 @@ def generate_extractor(
         console.print("\n[yellow]Agent conversation cancelled by user[/yellow]")
         raise typer.Exit(0)
     except Exception as e:
-        console.print(f"\n[red]Error during agent conversation: {e}[/red]")
+        # Offer fallback wizard on schema errors or any agent init failure
+        msg = str(e)
+        console.print(f"\n[red]Error during agent conversation: {msg}[/red]")
+        if "additionalProperties" in msg or "pydantic" in msg.lower():
+            console.print("\n[yellow]The Agents runtime seems incompatible with your Pydantic version.[/yellow]")
+            if Confirm.ask("Use the local interactive wizard instead?", default=True):
+                _run_config_wizard()
+                return
         import traceback
         console.print(f"[dim]{traceback.format_exc()}[/dim]")
         raise typer.Exit(1)
 
+
+def _interactive_actions():
+    """Offer common actions after selecting a config, in a loop."""
+    def _detect_pipeline() -> str:
+        cfg_path = os.getenv("MED_CONFIG_PATH", "")
+        if "country" in cfg_path.lower():
+            return "country"
+        if "doi" in cfg_path.lower():
+            return "doi"
+        # Fallback: infer from output directory
+        try:
+            cfg = load_config()
+            out_dir = (cfg.get('output', {}) or {}).get('directory', '')
+            if 'country' in str(out_dir).lower():
+                return "country"
+        except Exception:
+            pass
+        return "doi"
+
+    while True:
+        try:
+            cfg = load_config()
+        except Exception:
+            cfg = {}
+
+        pipeline = _detect_pipeline()
+
+        console.print("\n[bold]What would you like to do next?[/bold]")
+        if pipeline == "country":
+            console.print("  1) Preview data")
+            console.print("  2) Test single record")
+            console.print("  3) Extract Country (affiliations)")
+            console.print("  q) Quit")
+            valid_choices = ["1", "2", "3", "q"]
+            default_choice = "3"
+        else:
+            console.print("  1) Preview data")
+            console.print("  2) Test single record")
+            console.print("  3) Extract DOIs")
+            console.print("  5) Export results")
+            console.print("  6) Validate quality")
+            console.print("  7) Retry failures")
+            console.print("  8) Benchmark models")
+            console.print("  q) Quit")
+            valid_choices = ["1","2","3","5","6","7","8","q"]
+            default_choice = "3"
+
+        choice = Prompt.ask(
+            "Select action",
+            choices=valid_choices,
+            default=default_choice,
+        )
+
+        if choice == "q":
+            return
+
+        # Common defaults
+        default_file = "data-source.xlsx"
+        default_provider = cfg.get('llm', {}).get('default_provider', 'openai')
+        default_batch = cfg.get('processing', {}).get('batch_size', 1)
+
+        if pipeline == "country" and choice == "1":
+            # Preview country.xlsx
+            from pandas import read_excel
+            file = Prompt.ask("Excel file", default="country.xlsx")
+            try:
+                df = read_excel(file)
+            except Exception as e:
+                console.print(f"[red]Error loading file: {e}[/red]")
+            else:
+                console.print(f"[green]Total rows:[/green] {len(df)}  [green]Total columns:[/green] {len(df.columns)}")
+                console.print("\n[bold]Sample (first 5 rows):[/bold]")
+                sample = df.head(5)
+                for idx, row in sample.iterrows():
+                    col1 = str(row.iloc[0]) if len(row) > 0 else ''
+                    col2 = str(row.iloc[1]) if len(row) > 1 else ''
+                    console.print(f"  [dim]Row {idx+1}[/dim]\n    Col1: {col1[:120]}\n    Col2: {col2[:120]}")
+        elif pipeline == "country" and choice == "2":
+            # Test a single row
+            from .extractors.country_extractor import CountryExtractionEngine
+            cfg = load_config()
+            session_id = f"country_test_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            audit_logger = AuditLogger(session_id, config=cfg)
+            engine = CountryExtractionEngine(cfg, audit_logger, session_id)
+            file = Prompt.ask("Excel file", default="country.xlsx")
+            skip_rows = IntPrompt.ask("Skip rows before test", default=0)
+            provider = _choose_from_list("LLM provider", ["ollama", "openai"], default=cfg.get('llm',{}).get('default_provider','openai'))
+            model = None
+            if provider == "openai":
+                model = _choose_from_list("OpenAI model", ["gpt-5-nano","gpt-5-mini","gpt-5"], default=cfg.get('llm',{}).get('default_openai_model','gpt-5-nano'))
+            try:
+                records = engine.load_country_xlsx(Path(file))
+            except Exception as e:
+                console.print(f"[red]Error: {e}[/red]")
+            else:
+                if skip_rows >= len(records):
+                    console.print("[red]Skip exceeds rows[/red]")
+                else:
+                    record = records[skip_rows]
+                    async def run_one():
+                        return await engine.extract_from_record(record, force_provider=provider, force_model=model)
+                    result, error = asyncio.run(run_one())
+                    if error:
+                        console.print(f"[red]Extraction failed:[/red] {error}")
+                    else:
+                        console.print("[green]Extraction successful![/green]")
+                        console.print(f"  First author: {result.first_author}")
+                        console.print(f"  Location: {result.full_location}")
+                        console.print(f"  Country: {result.country}")
+                        console.print(f"  Confidence: {result.confidence_scores.overall:.2f}")
+            audit_logger.finalize_session()
+        elif pipeline == "country" and choice == "3":
+            # Delegate to existing interactive prompts in the command
+            extract_country(file=None, output=None, provider=None, model=None, batch_size=None)
+        elif pipeline == "doi" and choice == "1":
+            file = Prompt.ask("Excel file", default=default_file)
+            skip = IntPrompt.ask("Skip rows", default=0)
+            rows = IntPrompt.ask("Rows to preview", default=10)
+            preview(file=file, skip=skip, rows=rows)
+        elif pipeline == "doi" and choice == "2":
+            file = Prompt.ask("Excel file", default=default_file)
+            skip = IntPrompt.ask("Skip rows before test", default=0)
+            provider = _choose_from_list("Provider", ["ollama","openai"], default=default_provider)
+            model = None
+            if provider == "openai":
+                model = _choose_from_list("OpenAI model", _openai_model_options(cfg), default=_default_openai_model(cfg))
+            test(file=file, skip=skip, provider=provider, model=model, strategy=None)
+        elif pipeline == "doi" and choice == "3":
+            file = Prompt.ask("Excel file", default=default_file)
+            skip = IntPrompt.ask("Skip", default=0)
+            limit = IntPrompt.ask("Limit (0 for all)", default=0)
+            limit = None if limit == 0 else limit
+            provider = _choose_from_list("Provider", ["ollama","openai"], default=default_provider)
+            model = None
+            strategy = None
+            if provider == "openai":
+                model = _choose_from_list("OpenAI model", _openai_model_options(cfg), default=_default_openai_model(cfg))
+                strategy = _choose_from_list("Model selection strategy", ["cost-optimized","balanced","accuracy-first","manual"], default=cfg.get('llm',{}).get('model_selection_strategy','cost-optimized'))
+            max_cost = Prompt.ask("Max cost per extraction ($, blank to skip)", default="")
+            max_cost_val = float(max_cost) if max_cost.strip() else None
+            force = Confirm.ask("Force reprocess existing?", default=False)
+            batch_size = IntPrompt.ask("Batch size", default=int(default_batch))
+            extract_doi(
+                file=file,
+                skip=skip,
+                limit=limit,
+                provider=provider,
+                model=model,
+                strategy=strategy,
+                max_cost=max_cost_val,
+                force=force,
+                batch_size=batch_size,
+            )
+        elif pipeline == "doi" and choice == "5":
+            out_dir = Prompt.ask("Output directory", default=cfg.get('output',{}).get('directory','output/extracted'))
+            fmt = Prompt.ask("Export format", choices=["csv","excel"], default="csv")
+            out_file = Prompt.ask("Output file (blank = auto)", default="")
+            export(output_dir=out_dir, format=fmt, output_file=(out_file or None))
+        elif pipeline == "doi" and choice == "6":
+            out_dir = Prompt.ask("Output directory", default=cfg.get('output',{}).get('directory','output/extracted'))
+            validate(output_dir=out_dir)
+        elif pipeline == "doi" and choice == "7":
+            session_id = Prompt.ask("Retry specific session id (blank = all)", default="")
+            max_retries = IntPrompt.ask("Max retries per record", default=2)
+            retry(session_id=(session_id or None), max_retries=max_retries)
+        elif pipeline == "doi" and choice == "8":
+            file = Prompt.ask("Excel file", default=default_file)
+            sample_size = IntPrompt.ask("Sample size (0 = default)", default=0)
+            sample_size = None if sample_size == 0 else sample_size
+            models = Prompt.ask("Models (comma, blank=all)", default="")
+            skip = IntPrompt.ask("Skip rows", default=0)
+            benchmark(file=file, sample_size=sample_size, models=(models or None), skip=skip)
+
+        # Ask to continue
+        cont = Confirm.ask("\nRun another action?", default=False)
+        if not cont:
+            return
+
+
+def _run_config_wizard():
+    """Local interactive wizard to generate field and prompt configs without the agent runtime."""
+    from .pipeline_generators.config_generator import ConfigGenerator
+    console.print("\n[bold cyan]Config Wizard (local)[/bold cyan]")
+
+    mode = Prompt.ask("Mode", choices=["new", "modify", "fork"], default="new")
+
+    # List existing extractors by scanning config/fields
+    existing = []
+    fields_dir = Path("config/fields")
+    if fields_dir.exists():
+        for f in fields_dir.glob("*_fields.yaml"):
+            existing.append(f.stem.replace("_fields", ""))
+    existing = sorted(set(existing))
+
+    base_name = None
+    if mode in ("modify", "fork"):
+        if not existing:
+            console.print("[yellow]No existing extractors found; switching to 'new' mode[/yellow]")
+            mode = "new"
+        else:
+            console.print("Existing extractors: " + ", ".join(existing))
+            base_name = Prompt.ask("Select extractor to modify/fork", choices=existing)
+
+    if mode == "fork" or mode == "new":
+        name = Prompt.ask("New extractor name (snake_case)")
+    else:
+        # modify in place
+        name = base_name
+
+    # Load base configs if forking/modifying
+    base_fields = {}
+    base_prompts = {"system": "", "extraction": ""}
+    if mode in ("modify", "fork") and base_name:
+        fields_path = Path(f"config/fields/{base_name}_fields.yaml")
+        prompts_path = Path(f"config/prompts/{base_name}_prompts.yaml")
+        if fields_path.exists():
+            base_fields = yaml.safe_load(fields_path.read_text()) or {}
+        if prompts_path.exists():
+            base_prompts = yaml.safe_load(prompts_path.read_text()) or base_prompts
+
+    # Build fields interactively
+    console.print("\n[bold]Define fields[/bold]")
+    fields = base_fields if mode in ("modify", "fork") else {}
+    while True:
+        add = Confirm.ask("Add or edit a field?", default=(len(fields) == 0))
+        if not add:
+            break
+        fname = Prompt.ask("Field name (snake_case)")
+        ftype = Prompt.ask("Field type", choices=["text", "enum", "numeric", "boolean"], default="text")
+        if ftype == "enum":
+            values_str = Prompt.ask("Allowed values (comma-separated)", default=",")
+            allowed = [v.strip() for v in values_str.split(',') if v.strip()]
+            fields[fname] = allowed
+        else:
+            fields[fname] = []
+
+    # Prompts
+    console.print("\n[bold]Prompts[/bold]")
+    default_system = base_prompts.get("system", "You are an assistant extracting structured fields.")
+    system_prompt = Prompt.ask("System prompt", default=default_system)
+    default_extraction = base_prompts.get("extraction", "Fill JSON with required fields.")
+    extraction_prompt = Prompt.ask("Extraction prompt template", default=default_extraction)
+
+    # Generate files
+    fields_path, fields_content = ConfigGenerator.create_field_config(name, fields)
+    prompts_path, prompts_content = ConfigGenerator.create_prompt_config(name, system_prompt, extraction_prompt)
+
+    console.print("\n[bold]Preview field config:[/bold]")
+    console.print(fields_content)
+    console.print("\n[bold]Preview prompt config:[/bold]")
+    console.print(prompts_content)
+
+    if Confirm.ask("Save these files?", default=True):
+        ok1 = ConfigGenerator.save_file(fields_path, fields_content)
+        ok2 = ConfigGenerator.save_file(prompts_path, prompts_content)
+        if ok1 and ok2:
+            console.print(f"[green]✓ Saved:[/green] {fields_path}")
+            console.print(f"[green]✓ Saved:[/green] {prompts_path}")
+        else:
+            console.print("[red]Failed to save one or more files[/red]")
+
+    console.print("\n[bold cyan]Next Steps:[/bold cyan]")
+    console.print("- Implement your extractor using BaseExtractor (see src/extractors/doi_extractor.py for reference)")
+    console.print(f"- Update CLI to add a command for '{name}' if needed")
+    console.print("- Test with: python cli.py preview/test/extract-doi depending on your pipeline")
 
 def main():
     """Main entry point."""

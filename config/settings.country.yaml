@@ -1,0 +1,8 @@
+title: "Country Extraction"
+llm:
+  default_provider: "openai"
+processing:
+  batch_size: 5
+  delay_between_requests: 0.5
+output:
+  directory: "output/country_extracted"

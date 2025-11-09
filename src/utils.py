@@ -3,6 +3,7 @@ Utility functions for the extraction pipeline.
 """
 
 import re
+import json
 from typing import Optional, List, Dict, Any
 from pathlib import Path
 import hashlib
@@ -186,3 +187,66 @@ def truncate_text(text: str, max_length: int = 1000, suffix: str = "...") -> str
     if len(text) <= max_length:
         return text
     return text[:max_length - len(suffix)] + suffix
+
+
+def parse_json_from_text(content: str, try_direct_parse: bool = False) -> Dict[str, Any]:
+    """
+    Extract and parse JSON from LLM response text.
+
+    This utility consolidates JSON parsing logic used across different LLM providers.
+    It implements multiple extraction strategies to handle various response formats.
+
+    Args:
+        content: Raw text content from LLM response
+        try_direct_parse: If True, attempt direct JSON parsing first (for providers
+                         that support forced JSON output format like OpenAI's json_object)
+
+    Returns:
+        Parsed dictionary. If parsing fails completely, returns {'response': content}
+
+    Strategies (in order):
+        1. Direct JSON parse (only if try_direct_parse=True)
+        2. Extract from markdown code blocks (```json...```)
+        3. Extract raw JSON object from text ({...})
+        4. Fallback: wrap content in {'response': content}
+
+    Examples:
+        >>> parse_json_from_text('{"key": "value"}', try_direct_parse=True)
+        {'key': 'value'}
+
+        >>> parse_json_from_text('Here is the result:\\n```json\\n{"key": "value"}\\n```')
+        {'key': 'value'}
+
+        >>> parse_json_from_text('Plain text response')
+        {'response': 'Plain text response'}
+    """
+    # Strategy 1: Direct JSON parse (for providers with forced JSON format)
+    if try_direct_parse:
+        try:
+            return json.loads(content)
+        except (json.JSONDecodeError, ValueError):
+            # Fall through to extraction strategies
+            pass
+
+    # Strategy 2: Extract from markdown code blocks
+    try:
+        if '```json' in content:
+            json_str = content.split('```json')[1].split('```')[0].strip()
+            return json.loads(json_str)
+    except (json.JSONDecodeError, ValueError, IndexError, KeyError):
+        # Fall through to next strategy
+        pass
+
+    # Strategy 3: Extract raw JSON object from text
+    try:
+        if '{' in content and '}' in content:
+            start = content.index('{')
+            end = content.rindex('}') + 1
+            json_str = content[start:end]
+            return json.loads(json_str)
+    except (json.JSONDecodeError, ValueError, IndexError):
+        # Fall through to fallback
+        pass
+
+    # Strategy 4: Fallback - wrap as plain text response
+    return {'response': content}

@@ -62,6 +62,10 @@ class TransparencyMetadata(BaseModel):
     has_raw_llm_response: bool = True
     confidence_explanation: Optional[str] = None
     other_specifications: Dict[str, str] = Field(default_factory=dict)  # When "Other" is selected
+    # Cost and token usage (when available)
+    processing_cost: Optional[float] = None
+    input_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
 
 
 class ExtractedData(BaseModel):
@@ -107,6 +111,8 @@ class ProcessingFailure(BaseModel):
     last_retry_timestamp: Optional[datetime] = None
     input_data: Dict[str, Any]
     traceback: Optional[str] = None
+    # Track originating session for better filtering
+    processing_session_id: Optional[str] = None
 
 
 class CostSummary(BaseModel):
@@ -126,6 +132,9 @@ class BenchmarkResult(BaseModel):
     failed_extractions: int
     average_confidence: float
     average_processing_time: float
+    min_processing_time: Optional[float] = None
+    max_processing_time: Optional[float] = None
+    median_processing_time: Optional[float] = None
     total_cost: float
     average_cost_per_extraction: float
     accuracy_metrics: Dict[str, float] = Field(default_factory=dict)

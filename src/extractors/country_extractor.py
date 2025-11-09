@@ -237,6 +237,9 @@ class CountryExtractionEngine:
                 llm_model_version=final_model_version,
                 prompt_version_hash=prompt_hash,
                 processing_time_seconds=processing_time,
+                processing_cost=getattr(response, 'cost', None),
+                input_tokens=getattr(response, 'input_tokens', None),
+                output_tokens=getattr(response, 'output_tokens', None),
                 warning_logs=[],
                 has_raw_llm_response=True
             )
@@ -269,7 +272,11 @@ class CountryExtractionEngine:
             self.audit_logger.update_session_stats(
                 successful=True,
                 processing_time=processing_time,
-                llm_provider=provider_name
+                llm_provider=provider_name,
+                processing_cost=getattr(response, 'cost', None),
+                model_name=final_model_version,
+                input_tokens=getattr(response, 'input_tokens', None),
+                output_tokens=getattr(response, 'output_tokens', None)
             )
 
             return extracted_data, None
@@ -358,8 +365,7 @@ class CountryExtractionEngine:
         if extracted.get('country') == 'Other':
             country_conf *= 0.7
 
-        # Overall confidence
-        overall = (author_conf + location_conf + country_conf) / 3
+        overall = sum([author_conf, location_conf, country_conf]) / 3.0
 
         return CountryConfidenceScores(
             first_author=author_conf,
@@ -494,3 +500,4 @@ class CountryExtractionEngine:
             records.append(record)
 
         return records
+

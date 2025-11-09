@@ -46,6 +46,7 @@ class LLMEngine:
     def _initialize_providers(self) -> Dict[str, LLMProvider]:
         """Initialize available LLM providers."""
         providers = {}
+        provider_errors = []  # Track which providers failed and why
 
         # Initialize Ollama if configured
         if 'ollama' in self.config.get('llm', {}):
@@ -54,8 +55,11 @@ class LLMEngine:
                 is_valid, message = ollama_provider.validate_connection()
                 if is_valid:
                     providers['ollama'] = ollama_provider
-            except Exception:
-                pass  # Ollama initialization failed
+                    logger.info(f"Ollama provider initialized: {message}")
+                else:
+                    provider_errors.append(f"  ✗ ollama: {message}")
+            except Exception as e:
+                provider_errors.append(f"  ✗ ollama: Initialization failed - {str(e)}")
 
         # Initialize OpenAI models if configured
         if 'openai' in self.config.get('llm', {}):
@@ -71,8 +75,11 @@ class LLMEngine:
                         is_valid, message = openai_provider.validate_connection()
                         if is_valid:
                             providers[provider_key] = openai_provider
-                    except Exception:
-                        pass  # Model initialization failed
+                            logger.info(f"OpenAI provider initialized: {message}")
+                        else:
+                            provider_errors.append(f"  ✗ {provider_key}: {message}")
+                    except Exception as e:
+                        provider_errors.append(f"  ✗ openai-{model_name}: {str(e)}")
             else:
                 # Legacy single model configuration
                 try:
@@ -80,11 +87,29 @@ class LLMEngine:
                     is_valid, message = openai_provider.validate_connection()
                     if is_valid:
                         providers['openai'] = openai_provider
-                except Exception:
-                    pass  # OpenAI initialization failed
+                        logger.info(f"OpenAI provider initialized: {message}")
+                    else:
+                        provider_errors.append(f"  ✗ openai: {message}")
+                except Exception as e:
+                    provider_errors.append(f"  ✗ openai: {str(e)}")
 
         if not providers:
-            raise ValueError("No LLM providers available")
+            error_msg = "No LLM providers available. Attempted initialization:\n"
+            error_msg += "\n".join(provider_errors) if provider_errors else "  (no providers configured)"
+            error_msg += "\n\nSuggestions:"
+
+            # Check if OpenAI was attempted
+            openai_attempted = any('openai' in err for err in provider_errors)
+            ollama_attempted = any('ollama' in err for err in provider_errors)
+
+            if openai_attempted:
+                error_msg += "\n  • For OpenAI: Set OPENAI_API_KEY environment variable (export OPENAI_API_KEY='sk-...')"
+
+            if not ollama_attempted or (ollama_attempted and not openai_attempted):
+                error_msg += "\n  • For local LLM: Install Ollama from https://ollama.ai/download"
+                error_msg += "\n    Then configure it in your config file under 'llm.ollama'"
+
+            raise ValueError(error_msg)
 
         return providers
 
@@ -185,7 +210,7 @@ class LLMEngine:
             system_prompt: System prompt
             provider_name: Name of primary provider
             provider: Primary provider instance
-            enable_fallback: Enable automatic fallback on failure
+            enable_fallback: Enable automatic fallback on failure and low confidence
             fallback_callback: Optional callback when fallback occurs (provider_from, provider_to, error)
 
         Returns:
@@ -197,23 +222,82 @@ class LLMEngine:
                 system_prompt=system_prompt
             )
             final_model_version = response.model
+
+            # Check confidence-based fallback (only if auto_fallback is enabled)
+            if (enable_fallback and
+                self.auto_fallback and
+                response.confidence < self.fallback_threshold and
+                len(self.providers) > 1):
+
+                # Try to find a better provider
+                fallback_name = self._select_fallback_provider(provider_name)
+                if fallback_name:
+                    # Notify callback if provided
+                    if fallback_callback:
+                        fallback_callback(
+                            provider_name,
+                            fallback_name,
+                            f"Low confidence ({response.confidence:.2f} < {self.fallback_threshold})"
+                        )
+
+                    fallback_provider = self.providers[fallback_name]
+                    fallback_response = await fallback_provider.generate(
+                        prompt=prompt,
+                        system_prompt=system_prompt
+                    )
+
+                    # Use fallback response if it has higher confidence
+                    if fallback_response.confidence > response.confidence:
+                        return fallback_response, fallback_response.model
+
             return response, final_model_version
 
         except Exception as e:
-            # Try fallback provider if available
+            # Try fallback provider if available (error-based fallback)
             if enable_fallback and len(self.providers) > 1:
-                fallback_name = [k for k in self.providers.keys() if k != provider_name][0]
+                fallback_name = self._select_fallback_provider(provider_name)
+                if fallback_name:
+                    # Notify callback if provided
+                    if fallback_callback:
+                        fallback_callback(provider_name, fallback_name, str(e))
 
-                # Notify callback if provided
-                if fallback_callback:
-                    fallback_callback(provider_name, fallback_name, str(e))
+                    fallback_provider = self.providers[fallback_name]
+                    response = await fallback_provider.generate(
+                        prompt=prompt,
+                        system_prompt=system_prompt
+                    )
+                    final_model_version = response.model
+                    return response, final_model_version
+            raise
 
-                fallback_provider = self.providers[fallback_name]
-                response = await fallback_provider.generate(
-                    prompt=prompt,
-                    system_prompt=system_prompt
-                )
-                final_model_version = response.model
-                return response, final_model_version
-            else:
-                raise
+    def _select_fallback_provider(self, current_provider: str) -> Optional[str]:
+        """
+        Select a fallback provider different from the current one.
+
+        Prefers higher-tier models (e.g., gpt-5 over gpt-5-mini).
+
+        Args:
+            current_provider: Current provider name
+
+        Returns:
+            Fallback provider name or None
+        """
+        available = [k for k in self.providers.keys() if k != current_provider]
+        if not available:
+            return None
+
+        # Prefer higher-tier models for fallback
+        priority_order = [
+            'openai-gpt-5',
+            'openai-gpt-5-mini',
+            'openai-gpt-5-nano',
+            'openai',
+            'ollama'
+        ]
+
+        for preferred in priority_order:
+            if preferred in available:
+                return preferred
+
+        # Return first available as last resort
+        return available[0]

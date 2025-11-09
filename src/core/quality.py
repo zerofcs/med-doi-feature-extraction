@@ -183,14 +183,14 @@ class QualityValidator:
             validation_flags.append("Missing Field 3: Priority Topic")
         
         # Check for "Other" selections that need review
-        if extracted_data.subspecialty_focus and str(extracted_data.subspecialty_focus).lower() == "other":
-            if not extracted_data.subspecialty_focus_other:
-                validation_flags.append("Field 1 'Other' selected without specification")
-                needs_human_review = True
-        
         if extracted_data.study_design:
             has_other = str(extracted_data.study_design).lower() == "other"
             if has_other and not extracted_data.study_design_other:
+                validation_flags.append("Field 1 'Other' selected without specification")
+                needs_human_review = True
+
+        if extracted_data.subspecialty_focus and str(extracted_data.subspecialty_focus).lower() == "other":
+            if not extracted_data.subspecialty_focus_other:
                 validation_flags.append("Field 2 'Other' selected without specification")
                 needs_human_review = True
         
@@ -288,9 +288,9 @@ class QualityValidator:
             if data.transparency_metadata.human_review_required:
                 report["needs_review"] += 1
             
-            # Check for "Other" selections
-            if (data.subspecialty_focus and data.subspecialty_focus.value == "Other") or \
-               (data.study_design and data.study_design.value == "Other"):
+            # Check for "Other" selections (string-based)
+            if ((getattr(data, 'subspecialty_focus', None) and str(data.subspecialty_focus).lower() == "other") or
+                (getattr(data, 'study_design', None) and str(data.study_design).lower() == "other")):
                 report["has_other_selections"] += 1
             
             # Missing fields
@@ -298,7 +298,7 @@ class QualityValidator:
                 report["missing_fields"]["subspecialty_focus"] += 1
             if not data.study_design:
                 report["missing_fields"]["study_design"] += 1
-            if not data.priority_topics:
+            if not getattr(data, 'priority_topic', None):
                 report["missing_fields"]["priority_topics"] += 1
             
             # Validation issues
@@ -308,7 +308,7 @@ class QualityValidator:
                 report["validation_issues"][flag] += 1
             
             # Field coverage
-            fields = ["study_design", "subspecialty_focus", "priority_topics"]
+            fields = ["study_design", "subspecialty_focus", "priority_topic"]
             for field in fields:
                 if field not in report["field_coverage"]:
                     report["field_coverage"][field] = 0

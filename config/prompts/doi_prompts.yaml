@@ -8,7 +8,7 @@ system: |
 extraction: |
   Analyze the following medical literature entry and extract THREE specific classification fields.
   
-  CRITICAL: This analysis requires an abstract. If no abstract is provided, the extraction cannot proceed.
+  Note: If no abstract is provided, proceed using title and available metadata, but confidence will be limited.
 
   Title: {title}
   Authors: {authors}

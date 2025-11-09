@@ -5,7 +5,6 @@ Defines the interface that all extractors must implement.
 """
 
 import asyncio
-import yaml
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Dict, Any, Optional, List, Tuple
@@ -14,6 +13,7 @@ from datetime import datetime
 from ..core.llm_engine import LLMEngine
 from ..core.audit import AuditLogger
 from ..core.quality import QualityValidator
+from ..core.config_validator import ConfigValidator
 
 
 class BaseExtractor(ABC):
@@ -38,6 +38,9 @@ class BaseExtractor(ABC):
             audit_logger: Audit logging instance
             session_id: Unique session identifier
         """
+        # Validate configuration schema
+        ConfigValidator.validate_and_raise(config)
+
         self.config = config
         self.audit_logger = audit_logger
         self.session_id = session_id
@@ -123,7 +126,8 @@ class BaseExtractor(ABC):
         extracted: Dict[str, Any],
         confidence_scores: Any,
         transparency_metadata: Any,
-        processing_time: float
+        processing_time: float,
+        llm_confidence: float = 1.0
     ) -> Any:
         """
         Create extraction data model from parsed response.
@@ -134,6 +138,7 @@ class BaseExtractor(ABC):
             confidence_scores: Calculated confidence scores
             transparency_metadata: Audit metadata
             processing_time: Processing time in seconds
+            llm_confidence: Confidence score from LLM provider (0.0-1.0)
 
         Returns:
             ExtractedData instance (type varies by extractor)
@@ -177,7 +182,7 @@ class BaseExtractor(ABC):
         """
         pass
 
-    def normalize_choice(self, value: Optional[str], allowed: List[str]) -> Optional[str]:
+    def normalize_choice(self, value: Optional[str], allowed: List[str], identifier: Optional[str] = None) -> Optional[str]:
         """
         Normalize a free-text choice to an allowed option (case-insensitive).
 
@@ -186,6 +191,7 @@ class BaseExtractor(ABC):
         Args:
             value: User-provided value
             allowed: List of allowed values
+            identifier: Optional record identifier for audit logging
 
         Returns:
             Normalized value or None
@@ -209,6 +215,16 @@ class BaseExtractor(ABC):
             if opt.lower() == 'other':
                 return opt
 
+        # No match found - log warning and return original text
+        self.audit_logger.log_event(
+            doi=identifier or 'unknown',
+            event_type="normalization_warning",
+            event_data={
+                "raw_value": v,
+                "allowed_options": allowed,
+                "message": "Value could not be normalized to allowed options"
+            }
+        )
         return v
 
     def categorize_failure(self, error: Exception) -> str:
@@ -278,7 +294,6 @@ class BaseExtractor(ABC):
 
             # Build prompt
             prompt = self.build_prompt(record)
-            prompt_hash = self.audit_logger.get_prompt_version_hash(self.prompts.get('extraction', ''))
 
             # Assess complexity and select provider
             complexity = self.assess_complexity(record)
@@ -339,13 +354,28 @@ class BaseExtractor(ABC):
 
             # Create extracted data (extractor-specific)
             # Note: Subclasses handle confidence calculation and metadata creation
+            # Pass LLM confidence from provider response
             extracted_data = self.create_extracted_data(
                 record=record,
                 extracted=extracted,
                 confidence_scores=None,  # Subclass will calculate
                 transparency_metadata=None,  # Subclass will create
-                processing_time=processing_time
+                processing_time=processing_time,
+                llm_confidence=response.confidence  # Pass actual LLM confidence
             )
+
+            # Inject provider/model and token/cost info into transparency metadata
+            if hasattr(extracted_data, 'transparency_metadata') and extracted_data.transparency_metadata:
+                tm = extracted_data.transparency_metadata
+                tm.llm_provider_used = provider_name
+                tm.llm_model_version = final_model_version
+                # Attach cost and token usage when available
+                if getattr(response, 'cost', None) is not None:
+                    tm.processing_cost = response.cost
+                if getattr(response, 'input_tokens', None) is not None:
+                    tm.input_tokens = response.input_tokens
+                if getattr(response, 'output_tokens', None) is not None:
+                    tm.output_tokens = response.output_tokens
 
             # Save extraction (extractor-specific)
             self.save_extraction(extracted_data, output_file)
@@ -361,7 +391,11 @@ class BaseExtractor(ABC):
             self.audit_logger.update_session_stats(
                 successful=True,
                 processing_time=processing_time,
-                llm_provider=provider_name
+                llm_provider=provider_name,
+                processing_cost=getattr(response, 'cost', None),
+                model_name=final_model_version,
+                input_tokens=getattr(response, 'input_tokens', None),
+                output_tokens=getattr(response, 'output_tokens', None)
             )
 
             return extracted_data, None
@@ -372,12 +406,23 @@ class BaseExtractor(ABC):
             error_msg = str(e)
             tb = traceback.format_exc()
 
+            # Try to capture original record data when available for better retries
+            input_payload = None
+            try:
+                input_payload = record.model_dump()  # pydantic v2
+            except Exception:
+                try:
+                    # pydantic v1 fallback
+                    input_payload = record.dict()
+                except Exception:
+                    input_payload = {"identifier": identifier}
+
             self.audit_logger.log_failure(
                 doi=identifier,
                 key=identifier,
                 failure_category=self.categorize_failure(e),
                 failure_reason=error_msg,
-                input_data={"identifier": identifier},
+                input_data=input_payload,
                 traceback=tb
             )
 

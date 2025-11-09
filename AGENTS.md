@@ -20,7 +20,7 @@
 
 ## Coding Style & Naming Conventions
 - Language: Python 3.9+. Use 4‑space indentation, type hints, and docstrings.
-- Models: Use Pydantic models/enums in `src/models.py` for types and validation.
+- Models: Use Pydantic models/enums in `src/core/models.py` for types and validation.
 - Naming: snake_case for files/functions, PascalCase for classes, UPPER_SNAKE for constants.
 - Config: YAML keys lower_snake; keep defaults in `config/settings.yaml`.
 - CLI UX: Use Rich for console output in CLI only; library code should return values and avoid side effects.
@@ -40,3 +40,36 @@
 - Cost controls: adjust `llm.openai.cost_limits` and model strategy in `config/settings.yaml`.
 - Data hygiene: avoid committing `output/` and sample spreadsheets (`.gitignore` already excludes these); do not include PHI in issue logs.
 
+## Confidence and Quality System
+
+### Confidence Propagation
+- **LLM Provider Confidence**: OpenAI provider calculates dynamic confidence from response quality signals:
+  - **Logprobs**: Token-level probabilities averaged across response (lower perplexity = higher confidence)
+  - **Finish Reason**: Penalizes truncated (`length`) or filtered (`content_filter`) responses
+  - **Refusal**: Returns 0.0 confidence if model refuses to answer
+  - **Model Multiplier**: Configurable per-model adjustment in `config/settings.yaml`
+- **Quality Calculation**: Confidence flows through `LLMResponse` -> `BaseExtractor` -> extractor-specific `create_extracted_data` -> `QualityValidator.calculate_confidence_scores`
+- **Input-Based Capping**: Maximum achievable confidence is capped based on available input fields (e.g., title-only = 35% max, title+abstract = 60% max)
+
+### Automatic Fallback
+- **Confidence-Based Fallback**: When `processing.auto_fallback=true` and confidence < `fallback_confidence_threshold` (default 0.6), LLMEngine automatically retries with a higher-tier model
+- **Best-of-Two Strategy**: Compares original and fallback responses, uses whichever has higher confidence
+- **Provider Priority**: Fallback prefers gpt-5 > gpt-5-mini > gpt-5-nano > ollama
+- **Error-Based Fallback**: Also triggers on API errors, timeouts, or generation failures
+
+### Configuration Example
+```yaml
+processing:
+  auto_fallback: true
+  fallback_confidence_threshold: 0.6  # Retry if confidence < 60%
+
+llm:
+  openai:
+    models:
+      gpt-5-nano:
+        confidence_multiplier: 0.9  # Adjust for model capability
+      gpt-5-mini:
+        confidence_multiplier: 0.95
+      gpt-5:
+        confidence_multiplier: 1.0
+```
