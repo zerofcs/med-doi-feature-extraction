@@ -451,14 +451,14 @@ class CountryExtractionEngine:
                 results.extend(batch_results)
             except asyncio.TimeoutError:
                 print(
-                    f"[ERROR] Batch timeout after 30 seconds. Batch records: {[r.get('index', '?') for r in batch]}"
+                    f"[ERROR] Batch timeout after 30 seconds. Batch records: {[r.row_number for r in batch]}"
                 )
                 self.audit_logger.log_event(
                     doi="batch_timeout",
                     event_type="error",
                     event_data={
                         "message": "Batch timeout",
-                        "batch_indices": [r.get("index", "?") for r in batch],
+                        "batch_indices": [r.row_number for r in batch],
                     },
                 )
                 # Add None results for failed batch
