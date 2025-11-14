@@ -474,13 +474,23 @@ class CountryExtractionEngine:
         return results
 
     def save_results_to_csv(
-        self, results: List[CountryExtractedData], output_path: Path
+        self, results: List[CountryExtractedData], output_path: Path, append: bool = False
     ):
-        """Save extraction results to CSV file."""
+        """Save extraction results to CSV file.
+
+        Args:
+            results: List of extracted data to save
+            output_path: Path to output CSV file
+            append: If True, append to existing file. If False, overwrite.
+        """
         if not results:
             return
 
-        with open(output_path, "w", newline="", encoding="utf-8") as csvfile:
+        # Determine if we need to write header
+        file_exists = output_path.exists() and append
+        mode = "a" if append else "w"
+
+        with open(output_path, mode, newline="", encoding="utf-8") as csvfile:
             fieldnames = [
                 "row_number",
                 "original_text",
@@ -499,7 +509,9 @@ class CountryExtractionEngine:
             ]
 
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-            writer.writeheader()
+            # Only write header if file is new or being overwritten
+            if not file_exists:
+                writer.writeheader()
 
             for data in results:
                 writer.writerow(
