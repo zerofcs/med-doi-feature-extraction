@@ -531,7 +531,7 @@ def extract_doi(
         console.print(f"[green]Total records with DOIs: {total_with_doi}[/green]")
         
         if skip is None:
-            skip = IntPrompt.ask("[cyan]Number of records to skip[/cyan]", default=0)
+            skip = int(IntPrompt.ask("[cyan]Number of records to skip[/cyan]", default=0))
         
         if limit is None:
             remaining = total_with_doi - skip
@@ -579,7 +579,7 @@ def extract_doi(
     
     if batch_size is None:
         cfg_processing_default = cfg_for_defaults.get('processing', {}).get('batch_size', 1)
-        batch_size = IntPrompt.ask("[cyan]Batch size for concurrent processing[/cyan]", default=int(cfg_processing_default))
+        batch_size = int(IntPrompt.ask("[cyan]Batch size for concurrent processing[/cyan]", default=int(cfg_processing_default)))
     
     console.print("\n[bold]Medical Literature Extraction Pipeline[/bold]\n")
     
@@ -801,13 +801,13 @@ def extract_country(
 
     if batch_size is None:
         batch_default = int(config.get('processing', {}).get('batch_size', 5))
-        batch_size = IntPrompt.ask("[cyan]Batch size for concurrent processing[/cyan]", default=batch_default)
+        batch_size = int(IntPrompt.ask("[cyan]Batch size for concurrent processing[/cyan]", default=batch_default))
 
     # Optional limit/skip prompts
     if skip is None:
-        skip = IntPrompt.ask("[cyan]Skip rows before processing[/cyan]", default=0)
+        skip = int(IntPrompt.ask("[cyan]Skip rows before processing[/cyan]", default=0))
     if limit is None:
-        limit = IntPrompt.ask("[cyan]Limit rows to process (0 = all)[/cyan]", default=0)
+        limit = int(IntPrompt.ask("[cyan]Limit rows to process (0 = all)[/cyan]", default=0))
         if limit == 0:
             limit = None
 
@@ -849,12 +849,18 @@ def extract_country(
             task = progress.add_task(f"Extracting country data...", total=len(records))
 
             async def run_extraction():
-                results = await engine.process_batch(
-                    records,
-                    batch_size=batch_size,
-                    force_provider=provider,
-                    force_model=model
-                )
+                results = []
+                for i in range(0, len(records), batch_size):
+                    batch = records[i:i + batch_size]
+                    batch_results = await engine.process_batch(
+                        batch,
+                        batch_size=batch_size,
+                        force_provider=provider,
+                        force_model=model
+                    )
+                    results.extend(batch_results)
+                    # Update progress after each batch
+                    progress.advance(task, advance=len(batch))
                 return results
 
             # Run async extraction
@@ -864,7 +870,6 @@ def extract_country(
             successful = []
             failed = []
             for result, error in results:
-                progress.advance(task)
                 if result:
                     successful.append(result)
                 else:
@@ -1674,7 +1679,7 @@ def _interactive_actions():
             audit_logger = AuditLogger(session_id, config=cfg)
             engine = CountryExtractionEngine(cfg, audit_logger, session_id)
             file = Prompt.ask("Excel file", default="country.xlsx")
-            skip_rows = IntPrompt.ask("Skip rows before test", default=0)
+            skip_rows = int(IntPrompt.ask("Skip rows before test", default=0))
             provider = _choose_from_list("LLM provider", ["ollama", "openai"], default=cfg.get('llm',{}).get('default_provider','openai'))
             model = None
             if provider == "openai":
@@ -1702,15 +1707,15 @@ def _interactive_actions():
             audit_logger.finalize_session()
         elif pipeline == "country" and choice == "3":
             # Delegate to existing interactive prompts in the command
-            extract_country(file=None, output=None, provider=None, model=None, batch_size=None)
+            extract_country(file=None, output=None, provider=None, model=None, batch_size=None, skip=None, limit=None)
         elif pipeline == "doi" and choice == "1":
             file = Prompt.ask("Excel file", default=default_file)
-            skip = IntPrompt.ask("Skip rows", default=0)
-            rows = IntPrompt.ask("Rows to preview", default=10)
+            skip = int(IntPrompt.ask("Skip rows", default=0))
+            rows = int(IntPrompt.ask("Rows to preview", default=10))
             preview(file=file, skip=skip, rows=rows)
         elif pipeline == "doi" and choice == "2":
             file = Prompt.ask("Excel file", default=default_file)
-            skip = IntPrompt.ask("Skip rows before test", default=0)
+            skip = int(IntPrompt.ask("Skip rows before test", default=0))
             provider = _choose_from_list("Provider", ["ollama","openai"], default=default_provider)
             model = None
             if provider == "openai":
@@ -1718,8 +1723,8 @@ def _interactive_actions():
             test(file=file, skip=skip, provider=provider, model=model, strategy=None)
         elif pipeline == "doi" and choice == "3":
             file = Prompt.ask("Excel file", default=default_file)
-            skip = IntPrompt.ask("Skip", default=0)
-            limit = IntPrompt.ask("Limit (0 for all)", default=0)
+            skip = int(IntPrompt.ask("Skip", default=0))
+            limit = int(IntPrompt.ask("Limit (0 for all)", default=0))
             limit = None if limit == 0 else limit
             provider = _choose_from_list("Provider", ["ollama","openai"], default=default_provider)
             model = None
@@ -1730,7 +1735,7 @@ def _interactive_actions():
             max_cost = Prompt.ask("Max cost per extraction ($, blank to skip)", default="")
             max_cost_val = float(max_cost) if max_cost.strip() else None
             force = Confirm.ask("Force reprocess existing?", default=False)
-            batch_size = IntPrompt.ask("Batch size", default=int(default_batch))
+            batch_size = int(IntPrompt.ask("Batch size", default=int(default_batch)))
             extract_doi(
                 file=file,
                 skip=skip,
@@ -1752,14 +1757,14 @@ def _interactive_actions():
             validate(output_dir=out_dir)
         elif pipeline == "doi" and choice == "7":
             session_id = Prompt.ask("Retry specific session id (blank = all)", default="")
-            max_retries = IntPrompt.ask("Max retries per record", default=2)
+            max_retries = int(IntPrompt.ask("Max retries per record", default=2))
             retry(session_id=(session_id or None), max_retries=max_retries)
         elif pipeline == "doi" and choice == "8":
             file = Prompt.ask("Excel file", default=default_file)
-            sample_size = IntPrompt.ask("Sample size (0 = default)", default=0)
+            sample_size = int(IntPrompt.ask("Sample size (0 = default)", default=0))
             sample_size = None if sample_size == 0 else sample_size
             models = Prompt.ask("Models (comma, blank=all)", default="")
-            skip = IntPrompt.ask("Skip rows", default=0)
+            skip = int(IntPrompt.ask("Skip rows", default=0))
             benchmark(file=file, sample_size=sample_size, models=(models or None), skip=skip)
 
         # Ask to continue

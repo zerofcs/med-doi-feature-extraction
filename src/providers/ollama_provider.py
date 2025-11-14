@@ -34,15 +34,19 @@ class OllamaProvider(LLMProvider):
             messages.append({'role': 'user', 'content': prompt})
             
             # Make synchronous call (ollama library doesn't have async yet)
-            response = await asyncio.to_thread(
-                self.client.chat,
-                model=self.model,
-                messages=messages,
-                options={
-                    'temperature': self.temperature,
-                    'top_p': 0.9,
-                    'seed': 42,  # For reproducibility
-                }
+            # Wrap with timeout to prevent indefinite hangs
+            response = await asyncio.wait_for(
+                asyncio.to_thread(
+                    self.client.chat,
+                    model=self.model,
+                    messages=messages,
+                    options={
+                        'temperature': self.temperature,
+                        'top_p': 0.9,
+                        'seed': 42,  # For reproducibility
+                    }
+                ),
+                timeout=self.timeout
             )
             
             processing_time = time.time() - start_time
@@ -57,6 +61,8 @@ class OllamaProvider(LLMProvider):
                 confidence=0.9  # Default confidence for local models
             )
             
+        except asyncio.TimeoutError:
+            raise Exception(f"Ollama generation timed out after {self.timeout} seconds. Check if Ollama is running and responsive.")
         except Exception as e:
             raise Exception(f"Ollama generation failed: {str(e)}")
     

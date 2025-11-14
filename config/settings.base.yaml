@@ -15,7 +15,7 @@ llm:
     model: "gpt-4o-mini"
     max_tokens: 2000
     temperature: 0.1
-    timeout: 600  # 10 minute timeout for API calls
+    timeout: 60  # 60 second timeout for API calls
     
     # New multi-model configurations
     models:
