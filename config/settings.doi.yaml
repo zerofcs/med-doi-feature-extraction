@@ -1,5 +1,0 @@
-title: "DOI Extraction"
-output:
-  directory: "output/extracted"
-llm:
-  default_provider: "openai"

@@ -1,0 +1,11 @@
+pipeline: "doi"
+
+include:
+  - ../settings.base.yaml
+  - ../fields/doi_fields.yaml
+  - ../prompts/doi_prompts.yaml
+
+processing:
+  batch_size: 2
+  delay_between_requests: 0.2
+

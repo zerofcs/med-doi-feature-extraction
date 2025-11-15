@@ -1,0 +1,28 @@
+pipeline: "country"
+
+include:
+  - ../settings.base.yaml
+  - ../fields/country_fields.yaml
+  - ../prompts/country_prompts.yaml
+
+# Map poorly-named Excel columns to template-friendly variable names
+input:
+  column_map:
+    "Cut off First": "author_text"
+    "Shorten To country line": "affiliation_text"
+    "Unnamed: 2": "country_reference"
+
+# Define quality signals for confidence calculation
+quality:
+  min_confidence_threshold: 0.5
+  review_threshold: 0.7
+  input_signals:
+    - field: "author_text"
+      weight: 0.5
+    - field: "affiliation_text"
+      weight: 0.3
+
+processing:
+  batch_size: 3
+  delay_between_requests: 0.1
+

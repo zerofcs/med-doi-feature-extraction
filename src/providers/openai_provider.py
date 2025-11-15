@@ -3,9 +3,7 @@ OpenAI LLM provider implementation.
 """
 
 import os
-import json
 import time
-import asyncio
 from typing import Dict, Any, Optional, Tuple
 from openai import AsyncOpenAI
 from .base import LLMProvider, LLMResponse
@@ -268,11 +266,6 @@ class OpenAIProvider(LLMProvider):
                     "Missing API key. Set OPENAI_API_KEY environment variable "
                     "or add 'api_key' to OpenAI config"
                 )
-
-            client = openai.OpenAI(api_key=api_key)
-
-            # List models to test connection
-            models = client.models.list()
             return True, f"Connected to OpenAI API with model {self.model_name}"
 
         except openai.AuthenticationError as e:

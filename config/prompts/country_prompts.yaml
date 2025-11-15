@@ -9,20 +9,20 @@ extraction: |
   Analyze the following author information and extract details about the FIRST AUTHOR ONLY.
 
   Full Author Text (with names and affiliations):
-  {author_text}
+  {{ author_text }}
 
   First Author Affiliation (institutional affiliation only):
-  {affiliation_text}
+  {{ affiliation_text }}
 
   Extract the following fields for the FIRST AUTHOR and respond with valid JSON:
-  {{
+  {
     "first_author": "Full name of the first author (e.g., 'Smith, John A.' or 'Yalcin, Can Ege')",
     "full_location": "Complete affiliation/location text for the first author (e.g., 'Division of Plastic Surgery, Harvard Medical School, Boston, MA, USA')",
     "country": "FIELD: Select ONE from the list below"
-  }}
+  }
 
   FIELD - Country (SELECT ONE):
-  - {country_options}
+  - {{ country_options }}
 
   Important Guidelines:
   - Extract the FIRST author's name from the "Full Author Text" (the name before the first period)

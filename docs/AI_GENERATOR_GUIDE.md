@@ -1,5 +1,7 @@
 # AI-Powered Extraction Pipeline Generator
 
+Status: Planned/optional feature. The commands shown here (e.g., `generate-extractor`) may not be available in this build of the CLI.
+
 ## Overview
 
 The AI-Powered Extraction Pipeline Generator is an interactive tool that helps researchers create new extraction pipelines without writing code. Using OpenAI's Agents SDK, it provides a conversational interface to design and generate extraction configurations.

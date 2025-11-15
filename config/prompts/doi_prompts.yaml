@@ -10,31 +10,31 @@ extraction: |
   
   Note: If no abstract is provided, proceed using title and available metadata, but confidence will be limited.
 
-  Title: {title}
-  Authors: {authors}
-  Journal: {journal}
-  Year: {year}
-  Abstract: {abstract}
-  Author Affiliations: {affiliations}
+  Title: {{ title }}
+  Authors: {{ authors }}
+  Journal: {{ journal }}
+  Year: {{ year }}
+  Abstract: {{ abstract }}
+  Author Affiliations: {{ affiliations }}
 
   Extract the following THREE fields and respond with valid JSON:
-  {{
+  {
     "study_design": "FIELD 1: Select ONE from the list below",
     "study_design_other": "If 'Other' selected above, briefly specify",
     "subspecialty_focus": "FIELD 2: Select ONE from the list below",
     "subspecialty_focus_other": "If 'Other' selected above, briefly specify",
     "priority_topic": "FIELD 3: Select ONE from the list below"
-  }}
+  }
 
   FIELD 1 - Study Design (SELECT ONE):
-  - {study_design_options}
+  - {{ study_design_options }}
 
   FIELD 2 - Subspecialty Focus (SELECT ONE):
-  - {subspecialty_focus_options}
+  - {{ subspecialty_focus_options }}
 
   FIELD 3 - Priority Topics (SELECT ONE):
-  
-    • {priority_topic_options}
+
+    • {{ priority_topic_options }}
 
   Important Guidelines:
   - For Field 1: Choose the SINGLE most appropriate study design
