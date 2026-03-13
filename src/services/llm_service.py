@@ -33,6 +33,7 @@ class LLMService:
         user_prompt: str,
         record: Record,
         strategy: Optional[str] = None,
+        max_tokens: Optional[int] = None,
     ) -> LLMResponse:
         provider_name = self.default_provider
         llm_cfg = self.cfg.llm
@@ -48,10 +49,9 @@ class LLMService:
                 start_ix = 0
             else:
                 # Basic 3-tier strategy for automatic selection
-                nano = llm_cfg.default_openai_model or "gpt-5-nano"
-                mini = "gpt-5-mini"
-                full = "gpt-5"
-                model_candidates = [nano, mini, full]
+                mini = llm_cfg.default_openai_model or "gpt-5-mini"
+                full = "gpt-5.4"
+                model_candidates = [mini, full]
 
                 # Choose starting point by complexity
                 from .quality_service import QualityService
@@ -81,6 +81,8 @@ class LLMService:
         for ix in range(start_ix, len(model_candidates)):
             model = model_candidates[ix]
             provider = self._get_provider(provider_name, model_name=model)
+            if max_tokens is not None:
+                provider.max_tokens = max_tokens
             try:
                 resp = await provider.generate(user_prompt, system_prompt=system_prompt)
                 # Early stopping: if auto_fallback disabled, return immediately

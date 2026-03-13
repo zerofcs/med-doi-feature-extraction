@@ -19,7 +19,7 @@ class OpenAIModelConfig(BaseModel):
 
 
 class OpenAIConfig(BaseModel):
-    model: str = "gpt-4o-mini"
+    model: str = "gpt-5-mini"
     max_tokens: int = 2000
     temperature: float = 0.1
     timeout: int = 60
@@ -36,7 +36,7 @@ class OllamaConfig(BaseModel):
 
 class LLMConfig(BaseModel):
     default_provider: str = "openai"
-    default_openai_model: str = "gpt-5-nano"
+    default_openai_model: str = "gpt-5-mini"
     model_selection_strategy: str = "cost-optimized"
     openai: OpenAIConfig = Field(default_factory=OpenAIConfig)
     ollama: OllamaConfig = Field(default_factory=OllamaConfig)
@@ -56,6 +56,7 @@ class ProcessingConfig(BaseModel):
 
 class InputConfig(BaseModel):
     """Input data configuration including column mapping."""
+    id_column: str = "DOI"
     column_map: Optional[Dict[str, str]] = None
 
 
@@ -85,9 +86,14 @@ class LoggingConfig(BaseModel):
 
 
 class PromptTemplates(BaseModel):
-    # Simple container for system and user templates (strings)
     system: Optional[str] = None
     extraction: Optional[str] = None
+
+
+class ScreenConfig(BaseModel):
+    """Configuration for paper screening tasks."""
+    topic: str = ""
+    criteria: List[str] = Field(default_factory=list)
 
 
 class ConfigSchema(BaseModel):
@@ -99,7 +105,8 @@ class ConfigSchema(BaseModel):
     model_config = ConfigDict(frozen=True, extra="allow")
 
     title: Optional[str] = None
-    pipeline: Optional[str] = None  # Pipeline name (e.g., "doi", "country")
+    pipeline: Optional[str] = None
+    task: str = "extract"  # "extract" or "screen"
     llm: LLMConfig = Field(default_factory=LLMConfig)
     processing: ProcessingConfig = Field(default_factory=ProcessingConfig)
     input: Optional[InputConfig] = None
@@ -107,4 +114,5 @@ class ConfigSchema(BaseModel):
     output: OutputConfig = Field(default_factory=OutputConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     prompts: Optional[PromptTemplates] = None
+    screen: Optional[ScreenConfig] = None
 

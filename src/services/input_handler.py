@@ -45,7 +45,7 @@ class InputHandler:
         df = df.rename(columns=self.column_map)
 
         for _, row in df.iterrows():
-            data: Dict[str, Any] = row.to_dict()
+            data = {k: ("" if pd.isna(v) else v) for k, v in row.to_dict().items()}
             key = str(data.get(self.id_column) or data.get("DOI") or data.get("id") or _)
             yield Record(key=key, data=data)
 

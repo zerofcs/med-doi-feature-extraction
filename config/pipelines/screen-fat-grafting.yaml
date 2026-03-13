@@ -1,0 +1,18 @@
+pipeline: "fat-grafting-screen"
+task: "screen"
+
+screen:
+  topic: "patients undergoing fat grafting for breast reconstruction following mastectomy"
+  criteria:
+    - "irrelevant papers"
+    - "papers on fat grafting without mastectomy"
+    - "reviews"
+    - "studies in foreign languages"
+    - "studies on pediatric patients"
+    - "case reports with fewer than 5 patients"
+
+input:
+  id_column: "Covidence #"
+
+include:
+  - ../settings.base.yaml

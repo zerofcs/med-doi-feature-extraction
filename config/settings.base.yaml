@@ -1,33 +1,22 @@
 title: "Base Configuration"
 llm:
   default_provider: "openai"  # Options: ollama, openai
-  default_openai_model: "gpt-5-nano"  # Default OpenAI model for cost optimization
-  model_selection_strategy: "cost-optimized"  # Options: cost-optimized, balanced, accuracy-first, manual
-  
+  default_openai_model: "gpt-5-mini"
+  model_selection_strategy: "manual"
+
   ollama:
     base_url: "http://localhost:11434"
-    model: "deepseek-r1:8b"  # Use smaller model for faster response
+    model: "deepseek-r1:8b"
     timeout: 120
     temperature: 0.1
-  
+
   openai:
-    # Legacy single model config (maintained for backwards compatibility)
-    model: "gpt-4o-mini"
+    model: "gpt-5-mini"
     max_tokens: 2000
     temperature: 0.1
-    timeout: 60  # 60 second timeout for API calls
-    
-    # New multi-model configurations
+    timeout: 60
+
     models:
-      "gpt-5-nano":
-        max_tokens: 2000
-        temperature: 1.0
-        pricing:
-          input_per_1m: 0.05
-          output_per_1m: 0.40
-        confidence_multiplier: 0.85
-        complexity_threshold: 0.3
-        
       "gpt-5-mini":
         max_tokens: 2000
         temperature: 1.0
@@ -36,8 +25,8 @@ llm:
           output_per_1m: 2.00
         confidence_multiplier: 0.95
         complexity_threshold: 0.7
-        
-      "gpt-5":
+
+      "gpt-5.4":
         max_tokens: 2000
         temperature: 1.0
         pricing:
